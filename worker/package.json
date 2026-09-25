@@ -1,0 +1,25 @@
+{
+  "name": "priestess-verification-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Priestess Verification on Cloudflare Workers (verify.rakko.cn)",
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run --config vitest.config.js",
+    "acceptance": "node scripts/acceptance.mjs",
+    "bench:cpu": "node scripts/cpu-bench.mjs",
+    "bench:wall": "node scripts/wall-bench.mjs",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.140.0"
+  },
+  "overrides": {
+    "workerd": "1.20260925.2"
+  }
+}

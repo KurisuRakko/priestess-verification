@@ -25,9 +25,30 @@ function decodeBase64(b64) {
 }
 
 let readyPromise = null;
+let injectedModule = null;
+
+/**
+ * Inject a pre-compiled `WebAssembly.Module` for the vendored hashwx build.
+ *
+ * Runtimes that forbid compiling WebAssembly from bytes at runtime (Cloudflare
+ * Workers, for example) can import `vendor/hashwx.wasm` as a module and pass it
+ * here before the first hashwx call. Without an injected module the original
+ * behaviour is kept: the embedded base64 blob is compiled on first use.
+ */
+export function setHashwxModule(module) {
+  if (!(module instanceof WebAssembly.Module)) {
+    throw new TypeError(
+      "[capjs-core] setHashwxModule expects a WebAssembly.Module",
+    );
+  }
+  injectedModule = module;
+  readyPromise = null;
+}
 
 async function init() {
-  const mod = await WebAssembly.compile(decodeBase64(HASHWX_WASM_BASE64));
+  const mod =
+    injectedModule ??
+    (await WebAssembly.compile(decodeBase64(HASHWX_WASM_BASE64)));
   const instance = new WebAssembly.Instance(mod, {});
   const exports = instance.exports;
   if (typeof exports._initialize === "function") exports._initialize();

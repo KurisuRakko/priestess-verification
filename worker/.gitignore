@@ -1,0 +1,6 @@
+# Local-only state and secrets for the Cloudflare Workers deployment.
+node_modules/
+.cache/
+.wrangler/
+.dev.vars
+.screenshots/

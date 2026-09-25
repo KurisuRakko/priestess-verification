@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "priestess-verification",
+  "main": "src/index.js",
+  // Deployment compatibility date. `npm run dev`, `npm test` and
+  // `wrangler deploy` all use this single date: the newest published workerd
+  // (1.20260925.2) rejects anything newer at startup, so the date is pinned to
+  // the runtime the Worker actually ships on.
+  "compatibility_date": "2026-09-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "vars": {
+    "ALLOWED_ORIGINS": "https://verify.rakko.cn"
+  },
+  // `import capMinJs from "../../widget/src/cap.min.js"` must embed the exact
+  // bytes of the repo's build artifact, not evaluate it as a module, and
+  // `/cap_wasm_bg.wasm` must be served as raw bytes (wrangler's built-in
+  // `.wasm` rule would compile it into a WebAssembly.Module instead). Both
+  // rules fall through so the defaults still apply to every other file.
+  "rules": [
+    { "type": "Data", "globs": ["**/cap_wasm_bg.wasm"], "fallthrough": true },
+    { "type": "Text", "globs": ["**/*.min.js"], "fallthrough": true }
+  ],
+  // capjs-core dynamically imports these for instrumentation obfuscation levels
+  // >= 4. Neither can run in workerd, so both are stubbed and the import
+  // rejects into instrumentation.js's clean fallback.
+  "alias": {
+    "esbuild": "./src/stubs/esbuild.js",
+    "javascript-obfuscator": "./src/stubs/javascript-obfuscator.js"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "TOKEN_STORE", "class_name": "TokenStore" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TokenStore"] }],
+  "routes": [{ "pattern": "verify.rakko.cn", "custom_domain": true }],
+  "observability": { "enabled": true }
+}

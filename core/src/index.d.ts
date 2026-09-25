@@ -255,6 +255,13 @@ export interface HashwxState {
  *  request. Resolves to a state handle reusable with `hashwxHash`. */
 export function hashwxReady(): Promise<HashwxState>;
 
+/** Replaces the runtime-compiled HashWX module with a pre-compiled
+ *  `WebAssembly.Module` (import `vendor/hashwx.wasm`). Required on runtimes
+ *  that forbid `WebAssembly.compile()` at runtime, such as Cloudflare
+ *  Workers. Call before the first hashwx use; without it the embedded base64
+ *  blob is compiled on demand. */
+export function setHashwxModule(module: WebAssembly.Module): void;
+
 /** Largest 64-bit hash accepted at the given difficulty. */
 export function hashwxTarget(difficulty: number | bigint): bigint;
 
