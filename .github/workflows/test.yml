@@ -61,6 +61,9 @@ jobs:
       - name: Run e2e (basic)
         working-directory: widget
         run: bun test test/e2e.test.js
+      - name: Run e2e (auto)
+        working-directory: widget
+        run: bun test test/e2e-auto.test.js
       - name: Run e2e (instrumentation)
         working-directory: widget
         run: bun test test/e2e-instrumentation.test.js

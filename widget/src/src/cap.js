@@ -330,6 +330,10 @@
   // the widget never flashes its result when the solve finishes instantly
   const MIN_VERIFY_DISPLAY_MS = 1000;
 
+  // Set on widgets built by `new Cap()` without an element. Those live hidden in
+  // <html> and are driven programmatically, so `data-cap-auto` must not engage.
+  const CAP_PROGRAMMATIC = Symbol("capProgrammatic");
+
   let _sharedWorkerUrl = null;
 
   function _getSharedWorkerUrl() {
@@ -519,6 +523,17 @@
     #i18n = null;
     #abort = null;
 
+    // data-cap-auto state
+    #autoMode = "off";
+    #autoObserver = null;
+    #autoStarted = false;
+    #autoScheduled = false;
+    #autoFailed = false;
+    #autoReady = false;
+    #autoTriggered = false;
+    #autoLastEntryIntersecting = null;
+    #speculativeRearmPending = false;
+
     get #hasHaptics() {
       return (
         _browserHasHaptics &&
@@ -607,6 +622,16 @@
 
     #attachInteractionListeners() {
       this.#detachInteractionListeners();
+      // With data-cap-auto the widget already solves by itself; a speculative
+      // pre-solve would race it and burn a second challenge for the same mount.
+      if (this.#resolveAutoMode() !== "off") return;
+      // Never arm while a solve is in flight: a speculative fetch started now
+      // would race it and ask the server for a second challenge. Arm once it
+      // settles instead (see #armSpeculativeIfPending).
+      if (this.#solving) {
+        this.#speculativeRearmPending = true;
+        return;
+      }
       const handler = () => {
         this.#detachInteractionListeners();
         this.#onFirstInteraction();
@@ -629,6 +654,225 @@
 
     #logInvisible() {
       if (!this.#isVisible()) log.info(T("challenges"), "solved invisible challenge");
+    }
+
+    // ---- data-cap-auto ----------------------------------------------------
+    //
+    // Auto mode drives the very same `#runSolve()` path a click uses, so UI,
+    // events, aria and progress all behave identically. It deliberately does
+    // NOT use the speculative pre-solve machinery: speculation only primes a
+    // token for a later click and never touches the UI, and letting both run
+    // would solve the same challenge twice. While auto mode is on, speculative
+    // solving stays disarmed.
+
+    // A widget managed by [floating mode] is hidden until its trigger is
+    // pressed, and that trigger calls `solve()` itself: auto mode would burn a
+    // challenge before the user ever asked for one. `cap-floating.js` marks the
+    // widget it manages, but the markup may already point at this widget
+    // through a `[data-cap-floating]` trigger by the time it connects (the
+    // widget script is documented to load first), so look for the trigger too.
+    // Never rely on the `display:none` timing.
+    #isFloating() {
+      if (this.hasAttribute("data-cap-floating")) return true;
+      let triggers;
+      try {
+        triggers = document.querySelectorAll("[data-cap-floating]");
+      } catch {
+        return false;
+      }
+      for (const trigger of triggers) {
+        if (trigger === this) continue;
+        const selector = trigger.getAttribute("data-cap-floating");
+        if (!selector) continue;
+        let target = null;
+        try {
+          target = document.querySelector(selector);
+        } catch {
+          continue;
+        }
+        if (target === this) return true;
+      }
+      return false;
+    }
+
+    #resolveAutoMode() {
+      if (this[CAP_PROGRAMMATIC]) return "off";
+      if (!this.hasAttribute("data-cap-auto")) return "off";
+      if (this.#isFloating()) return "off";
+      const raw = (this.getAttribute("data-cap-auto") || "")
+        .trim()
+        .toLowerCase();
+      if (raw === "" || raw === "visible") return "visible";
+      if (raw === "load") return "load";
+      if (raw === "off" || raw === "false") return "off";
+      log.warn(T(), `unknown data-cap-auto value '${raw}', using 'visible'`);
+      return "visible";
+    }
+
+    #autoIsVisible() {
+      return this.isConnected && !this.#hostIsHidden();
+    }
+
+    // Live geometry check. The IntersectionObserver callback is async, so a
+    // decision taken right after a scroll (e.g. inside reset()) must not rely
+    // on the last reported entry.
+    #autoIntersectsViewport() {
+      if (!this.#autoIsVisible()) return false;
+      // Geometry cannot see ancestor clipping (scroll containers,
+      // `overflow: hidden`), but the observer can: when it has already told us
+      // the widget is not intersecting, trust that over the raw rect.
+      if (this.#autoLastEntryIntersecting === false) return false;
+      const rect = this.getBoundingClientRect();
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      return (
+        rect.bottom > 0 && rect.right > 0 && rect.left < vw && rect.top < vh
+      );
+    }
+
+    #ensureAutoObserver() {
+      if (this.#autoObserver) return true;
+      if (typeof IntersectionObserver !== "function") return false;
+      this.#autoObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.target !== this) continue;
+            this.#autoLastEntryIntersecting = entry.isIntersecting;
+            if (this.#autoMode === "load") {
+              // `load` only waits for the widget to become rendered at all
+              // (display:none hosts stay inert), not for the viewport.
+              if (this.#autoIsVisible()) this.#requestAutoSolve();
+            } else if (entry.isIntersecting) {
+              this.#requestAutoSolve();
+            }
+          }
+        },
+        { threshold: 0 },
+      );
+      this.#autoObserver.observe(this);
+      return true;
+    }
+
+    #teardownAuto() {
+      if (this.#autoObserver) {
+        this.#autoObserver.disconnect();
+        this.#autoObserver = null;
+      }
+      this.#autoMode = "off";
+      this.#autoLastEntryIntersecting = null;
+      this.#autoStarted = false;
+      this.#autoScheduled = false;
+      this.#autoFailed = false;
+      this.#speculativeRearmPending = false;
+    }
+
+    #requestAutoSolve() {
+      if (this.#autoMode === "off") return;
+      if (this.#autoStarted || this.#autoScheduled || this.#autoFailed) return;
+      if (this.token || this.#solving) return;
+      if (!this.#autoIsVisible()) return;
+
+      this.#autoStarted = true;
+      this.#autoScheduled = true;
+      queueMicrotask(() => {
+        this.#autoScheduled = false;
+        if (this.#autoMode === "off" || !this.isConnected) return;
+        if (this.token || this.#solving) return;
+        this.#runSolve(true).catch(() => {
+          // The failure already surfaced through the `error` event. Auto mode
+          // never retries by itself; the widget just goes back to clickable.
+          this.#autoFailed = true;
+        });
+      });
+    }
+
+    #startAuto() {
+      this.#autoReady = true;
+      this.#autoMode = this.#resolveAutoMode();
+      if (this.#autoMode === "off") return;
+      if (!this.#ensureAutoObserver()) {
+        // Without IntersectionObserver `visible` degrades to solving at once.
+        this.#requestAutoSolve();
+        return;
+      }
+      if (this.#autoMode === "load") this.#requestAutoSolve();
+    }
+
+    #handleAutoAttribute() {
+      if (!this.#autoReady) return;
+      const next = this.#resolveAutoMode();
+      if (next === this.#autoMode) return;
+
+      const wasInViewport = this.#autoIntersectsViewport();
+      this.#teardownAuto();
+      this.#autoMode = next;
+
+      if (next === "off") {
+        // Back to click-only: speculative pre-solving becomes fair game again,
+        // but only once a solve that is already in flight has settled
+        // (#attachInteractionListeners defers it).
+        this.#attachInteractionListeners();
+        return;
+      }
+      if (!this.isConnected) return;
+
+      this.#detachInteractionListeners();
+      const hasObserver = this.#ensureAutoObserver();
+      if (next === "load" || !hasObserver || wasInViewport) {
+        this.#requestAutoSolve();
+      }
+    }
+
+    // Runs after an in-flight solve settles. Speculative pre-solving is only
+    // (re)armed here when switching auto mode off asked for it, the widget
+    // ended up without a token, and there is nothing else to wait for.
+    #armSpeculativeIfPending() {
+      if (!this.#speculativeRearmPending) return;
+      this.#speculativeRearmPending = false;
+      if (this.#solving || !this.isConnected) return;
+      if (this.#resolveAutoMode() !== "off") return;
+      if (this.token || this.#interactionHandler) return;
+      if (!this.#speculative || this.#speculative.state !== "idle") return;
+      this.#attachInteractionListeners();
+    }
+
+    // `runInstrumentationChallenge` cannot be cancelled and takes up to 20s to
+    // time out. Racing it against the abort signal keeps `#solving` from
+    // staying true long after a disconnect, which would silently swallow the
+    // auto solve of a reconnect.
+    #abortable(promise, signal) {
+      if (!signal) return promise;
+      if (signal.aborted) return Promise.resolve(undefined);
+      return new Promise((resolve, reject) => {
+        const onAbort = () => resolve(undefined);
+        signal.addEventListener("abort", onAbort, { once: true });
+        promise.then(
+          (value) => {
+            signal.removeEventListener("abort", onAbort);
+            resolve(value);
+          },
+          (err) => {
+            signal.removeEventListener("abort", onAbort);
+            reject(err);
+          },
+        );
+      });
+    }
+
+    #resumeAutoAfterReset() {
+      if (this.#autoMode === "off" || !this.isConnected) return;
+      this.#autoStarted = false;
+      this.#autoScheduled = false;
+      this.#autoFailed = false;
+      const hasObserver = this.#ensureAutoObserver();
+      // `visible` away from the viewport simply waits for the next entry.
+      if (
+        this.#autoMode === "load" ||
+        !hasObserver ||
+        this.#autoIntersectsViewport()
+      ) {
+        this.#requestAutoSolve();
+      }
     }
 
     #onFirstInteraction() {
@@ -1020,6 +1264,8 @@
         "onerror",
         "data-cap-worker-count",
         "data-cap-i18n-initial-state",
+        "data-cap-auto",
+        "data-cap-floating",
         "required",
       ];
     }
@@ -1102,6 +1348,10 @@
         );
       }
 
+      if (name === "data-cap-auto" || name === "data-cap-floating") {
+        this.#handleAutoAttribute();
+      }
+
       if (name === "required") {
         this.#updateValidity();
       }
@@ -1137,6 +1387,8 @@
       this.#updateValidity();
 
       this.addEventListener("invalid", this.#handleInvalid);
+
+      this.#startAuto();
     }
 
     #handleInvalid = () => {
@@ -1153,6 +1405,10 @@
     };
 
     async solve() {
+      return this.#runSolve(false);
+    }
+
+    async #runSolve(isAuto) {
       if (this.#solving) {
         return;
       }
@@ -1164,6 +1420,7 @@
 
       try {
         this.#solving = true;
+        this.#autoTriggered = isAuto;
         this.updateUI(
           "verifying",
           this.getI18nText("verifying-label", "Verifying..."),
@@ -1311,7 +1568,7 @@
             ? runInstrumentationChallenge(challengeResp.instrumentation)
             : Promise.resolve(null);
 
-          const instrOut = await instrPromise;
+          const instrOut = await this.#abortable(instrPromise, signal);
           if (signal?.aborted || !this.#speculative) return;
           if (gen !== this.#solveGen) return;
 
@@ -1410,7 +1667,7 @@
               "We have verified you're a human, you may now continue",
             ),
           );
-          if (this.#hasHaptics) navigator.vibrate([10, 50, 20, 30, 40]);
+          if (this.#hasHaptics && !isAuto) navigator.vibrate([10, 50, 20, 30, 40]);
 
           log.debug(T("solve"), `verified in ${since(_solveT0)}`);
           this.#logInvisible();
@@ -1432,9 +1689,14 @@
           throw err;
         }
       } finally {
-        // Only the current solve may clear the flag — a stale one finishing
-        // late must not unlock (or lock) a newer solve's "solving" state.
-        if (gen === this.#solveGen) this.#solving = false;
+        // Only the current solve may clear these — a stale one finishing late
+        // must not unlock (or lock) a newer solve's "solving" state, nor arm a
+        // speculative pre-solve that would race it.
+        if (gen === this.#solveGen) {
+          this.#solving = false;
+          this.#autoTriggered = false;
+          this.#armSpeculativeIfPending();
+        }
       }
     }
 
@@ -1771,6 +2033,7 @@
         this.getI18nText("verify-aria-label", "Click to verify you're a human"),
       );
       this.#trigger.setAttribute("aria-live", "polite");
+      this.#trigger.setAttribute("aria-atomic", "true");
       this.#trigger.setAttribute("disabled", "true");
       this.#trigger.innerHTML = `<div class="checkbox" part="checkbox" aria-hidden="true"><svg class="progress-ring" viewBox="0 0 32 32" aria-hidden="true"><circle class="progress-ring-bg" cx="16" cy="16" r="14"></circle><circle class="progress-ring-circle" cx="16" cy="16" r="14"></circle></svg></div><p part="label" class="label-wrapper"><span class="label active">${this.getI18nText(
         "initial-state",
@@ -2010,7 +2273,7 @@
       );
       this.executeAttributeCode("onerror", event);
 
-      if (this.#hasHaptics) navigator.vibrate([10, 40, 10]);
+      if (this.#hasHaptics && !this.#autoTriggered) navigator.vibrate([10, 40, 10]);
     }
 
     handleReset(event) {
@@ -2065,6 +2328,8 @@
       this.token = null;
       this.dispatchEvent("reset");
       this.#setToken("");
+
+      this.#resumeAutoAfterReset();
     }
 
     get tokenValue() {
@@ -2077,6 +2342,7 @@
       // reset() below bumps the generation again, which is harmless.
       this.#solveGen++;
       this.#solving = false;
+      this.#autoReady = false;
       this.removeEventListener("progress", this.boundHandleProgress);
       this.removeEventListener("solve", this.boundHandleSolve);
       this.removeEventListener("error", this.boundHandleError);
@@ -2102,6 +2368,7 @@
       }
 
       this.#detachInteractionListeners();
+      this.#teardownAuto();
       if (this.#speculativeTimer) {
         clearTimeout(this.#speculativeTimer);
         this.#speculativeTimer = null;
@@ -2153,6 +2420,8 @@
       });
 
       if (!el) {
+        // Hidden widget driven through the JS API: never auto-solve.
+        widget[CAP_PROGRAMMATIC] = true;
         widget.style.display = "none";
         document.documentElement.appendChild(widget);
       }

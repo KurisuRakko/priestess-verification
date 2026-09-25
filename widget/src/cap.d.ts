@@ -68,6 +68,18 @@ interface CapConfig {
   "data-cap-api-endpoint"?: string;
   "data-cap-worker-count"?: string;
   "data-cap-hidden-field-name"?: string;
+  /**
+   * Start solving without waiting for a click.
+   * - `"visible"` (also the bare/empty attribute) starts as soon as the widget
+   *   enters the viewport
+   * - `"load"` starts right after the widget is mounted
+   * - `"off"` / `"false"` (or omitting the attribute) keeps the click-only behaviour
+   *
+   * Unknown values fall back to `"visible"`. Auto mode is ignored by widgets
+   * created through `new Cap()` without an element, and by floating widgets
+   * (`data-cap-floating`), where the trigger press starts the solve.
+   */
+  "data-cap-auto"?: "visible" | "load" | "off" | "false" | "";
   "data-cap-i18n-initial-state"?: string;
   "data-cap-i18n-verifying-label"?: string;
   "data-cap-i18n-solved-label"?: string;

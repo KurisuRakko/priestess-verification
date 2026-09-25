@@ -290,6 +290,33 @@ Haptic feedback is automatically disabled in [programmatic mode](./programmatic)
 | `data-cap-hidden-field-name`   | Name of the hidden token input in a `<form>` (default: `cap-token`)           |
 | `data-cap-troubleshooting-url` | Custom URL for the "Troubleshooting" link shown when a user is blocked        |
 | `data-cap-disable-haptics`     | Disable haptic feedback (vibrations) on this widget                           |
+| `data-cap-auto`                | Start solving without a click: `visible` (default) or `load`                  |
+
+#### Auto mode
+
+`data-cap-auto` lets the widget start solving on its own instead of waiting for a click. It runs the exact same path as a manual click: the progress ring animates, `progress` / `solve` / `error` fire as usual, and the hidden token field is filled in when it finishes.
+
+| Value                    | Behaviour                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------ |
+| *(empty)* or `visible`   | **Default.** Starts as soon as the widget enters the viewport, once.                       |
+| `load`                   | Starts right after the widget is mounted.                                                  |
+| `off` / `false`          | No auto solving: the widget stays click-only (the default with no attribute).              |
+
+Any other value is treated as `visible`.
+
+```html
+<cap-widget data-cap-auto="load" data-cap-api-endpoint="https://<your-instance>/<site-key>/"></cap-widget>
+<cap-widget data-cap-auto data-cap-api-endpoint="https://<your-instance>/<site-key>/"></cap-widget>
+```
+
+Things worth knowing:
+
+- **No haptics.** Auto solves never vibrate. Devices only buzz for genuine user interaction.
+- **Screen readers.** The outcome is announced through the widget's `aria-live` region, so it is reported even though nobody clicked.
+- **Failures are not retried.** A failed auto solve leaves the widget in its error state and clickable again. Retrying is up to the user, or to your own `solve()` call.
+- **Token expiry and manual resets.** Every time the token expires — or you call `reset()` yourself — auto mode solves again: immediately for `load`, and for `visible` as soon as the widget is back on screen. Short-lived tokens therefore keep refreshing for as long as the page lives, and an attempt that fails is not retried in a loop.
+- **One solve at a time.** Auto mode disables the speculative pre-solve path, so a widget never works on two challenges at once, and an off-screen `visible` widget costs nothing. Switching the attribute to `off` while a solve is in flight lets that solve finish first; the speculative pre-solver is only re-armed afterwards, and not at all if the widget already holds a token.
+- **Ignored in [programmatic mode](./programmatic)** (`new Cap()` without an element) and in [floating mode](./floating): the floating script marks the widget it manages, so auto mode never fires before the trigger is pressed. If the floating trigger is inserted into the page only after the widget has mounted, leave `data-cap-auto` off, or the widget may auto-solve once before floating mode takes over.
 
 #### i18n
 

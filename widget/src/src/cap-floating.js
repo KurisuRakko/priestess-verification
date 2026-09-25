@@ -78,6 +78,10 @@
     }
 
     capWidget.style.display = "none";
+    // Tell the widget it is driven by floating mode: `data-cap-auto` must not
+    // fire before the user presses the trigger (the widget script may well have
+    // connected it already, so this also has to cancel a scheduled auto solve).
+    capWidget.setAttribute("data-cap-floating", "");
     let bypass = false;
 
     element.addEventListener(
