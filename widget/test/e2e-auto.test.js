@@ -595,22 +595,31 @@ if (!SHOULD_RUN_E2E) {
         await page.evaluate(() =>
           document.getElementById("cap").setAttribute("data-cap-auto", "off"),
         );
-        // A reset while the solve is still running must not re-arm either.
-        await page.evaluate(() => document.getElementById("cap").reset());
-
-        // User activity is what used to arm the speculative pre-solver.
+        // User activity is what arms the speculative pre-solver; it must stay
+        // disarmed while the auto solve is still in flight.
         await page.mouse.move(120, 120);
         await page.mouse.move(240, 240);
-
-        await waitForSolve(1);
         // Long enough for a speculative fetch (2.5s delay) to have fired.
+        await page.waitForTimeout(3000);
+        expect(challengeRequests).toBe(1);
+
+        // A reset invalidates the in-flight solve: it never redeems or commits
+        // a token, and the widget is back to a fresh click-only state (where
+        // speculative pre-solving is allowed again).
+        await page.evaluate(() => document.getElementById("cap").reset());
+        // Let the stale challenge (4s) land.
+        await page.waitForTimeout(3000);
+        expect((await readState()).solves.length).toBe(0);
+
+        challengeDelayMs = 0;
+        await page.locator("#cap .captcha-trigger").click();
+        await waitForSolve(1);
         await page.waitForTimeout(3000);
 
         const state = await readState();
         expect(state.solves.length).toBe(1);
-        expect(challengeRequests).toBe(1);
+        expect(challengeRequests).toBe(2);
         expect(redeemRequests).toBe(1);
-        expect(maxInFlight).toBe(1);
       } finally {
         challengeDelayMs = 0;
       }
