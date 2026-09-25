@@ -38,3 +38,5 @@ The following attributes are supported:
 - `data-cap-floating`: The CSS selector of the `cap-widget` element you want to use.
 - `data-cap-floating-position`: The position of the floating widget. Can be `top` or `bottom`.
 - `data-cap-floating-offset`: The offset of the floating widget from the trigger element.
+
+`data-cap-auto` is ignored on a floating widget: pressing the trigger is what starts the solve, and the floating script marks the widget it manages so nothing is solved before then.

@@ -38,3 +38,5 @@ Cap 可以自动隐藏 CAPTCHA，等按钮被按下时再显示。用法是在�
 - `data-cap-floating`：你想使用的 `cap-widget` 元素的 CSS 选择器。
 - `data-cap-floating-position`：浮动组件的位置，可以是 `top` 或 `bottom`。
 - `data-cap-floating-offset`：浮动组件相对触发元素的偏移量。
+
+浮动组件上 `data-cap-auto` 不生效：求解由按下触发元素开始，浮动脚本会标记它接管的组件，因此在那之前不会求解任何挑战。

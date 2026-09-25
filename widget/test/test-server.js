@@ -8,6 +8,10 @@ export const widgetMin = fs.readFileSync(
   path.join(__dirname, "..", "src", "cap.min.js"),
   "utf-8",
 );
+export const floatingMin = fs.readFileSync(
+  path.join(__dirname, "..", "src", "cap-floating.min.js"),
+  "utf-8",
+);
 export const wasmBytes = fs.readFileSync(
   path.join(
     __dirname,
@@ -20,11 +24,16 @@ export const wasmBytes = fs.readFileSync(
   ),
 );
 
-export function makeBaseHandler({ onChallenge, onRedeem, html }) {
+export function makeBaseHandler({ onChallenge, onRedeem, html, floatingHtml }) {
   return async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/widget.js") {
       return new Response(widgetMin, {
+        headers: { "Content-Type": "application/javascript" },
+      });
+    }
+    if (url.pathname === "/floating.js") {
+      return new Response(floatingMin, {
         headers: { "Content-Type": "application/javascript" },
       });
     }
@@ -35,6 +44,11 @@ export function makeBaseHandler({ onChallenge, onRedeem, html }) {
     }
     if (url.pathname === "/" && html) {
       return new Response(html, { headers: { "Content-Type": "text/html" } });
+    }
+    if (url.pathname === "/floating" && floatingHtml) {
+      return new Response(floatingHtml, {
+        headers: { "Content-Type": "text/html" },
+      });
     }
     if (url.pathname === "/cap/challenge" && req.method === "POST") {
       return Response.json(await onChallenge());

@@ -290,6 +290,33 @@ window.CAP_DISABLE_HAPTICS = true;
 | `data-cap-hidden-field-name`   | `<form>` 中隐藏令牌输入框的名称（默认：`cap-token`）                          |
 | `data-cap-troubleshooting-url` | 用户被拦截时显示的"故障排查"链接的自定义 URL                                  |
 | `data-cap-disable-haptics`     | 在该组件上禁用触感反馈（振动）                                                |
+| `data-cap-auto`                | 不点击即自动求解：`visible`（默认）或 `load`                                  |
+
+#### 自动模式
+
+`data-cap-auto` 让组件不必等待点击就自行开始求解。它和手动点击走的是同一条路径：进度环照常转动，`progress` / `solve` / `error` 事件照常触发，求解完成后隐藏令牌输入框也会被填入。
+
+| 取值                     | 行为                                                           |
+| ------------------------ | -------------------------------------------------------------- |
+| *(空)* 或 `visible`      | **默认。**组件进入视口后立即开始，只触发一次。                 |
+| `load`                   | 组件挂载完成后立即开始。                                       |
+| `off` / `false`          | 不自动求解，组件保持点击触发（没有该属性时的默认行为）。       |
+
+任何其他取值都会按 `visible` 处理。
+
+```html
+<cap-widget data-cap-auto="load" data-cap-api-endpoint="https://<your-instance>/<site-key>/"></cap-widget>
+<cap-widget data-cap-auto data-cap-api-endpoint="https://<your-instance>/<site-key>/"></cap-widget>
+```
+
+几点需要留意：
+
+- **不会振动。**自动求解从不触发触感反馈，只有真实的用户交互才会让设备振动。
+- **读屏器播报。**结果会通过组件的 `aria-live` 区域播报，因此即使没有人点击，读屏器也会报告结果。
+- **失败后不重试。**自动求解失败后，组件停在错误状态并恢复为可点击；是否重试由用户或你调用 `solve()` 决定。
+- **令牌过期与手动重置。**每次令牌过期——或你自己调用 `reset()`——自动模式都会重新求解：`load` 立即开始，`visible` 则在组件重新回到屏幕上时开始。因此短期令牌会在页面存活期间持续刷新；失败的尝试不会循环重试。
+- **同一时间只求解一次。**自动模式会关闭 speculative 预求解路径，因此一个组件不会同时计算两份挑战；视口外的 `visible` 组件不消耗任何算力。求解进行中把属性切换为 `off` 时，会先等这次求解结束，之后才重新启用 speculative 预求解；如果此时组件已经持有令牌，则不会启用。
+- **在[编程模式](./programmatic)（不带元素的 `new Cap()`）和[浮动模式](./floating)下不生效：**浮动脚本会标记它接管的组件，因此在用户按下触发按钮之前，自动模式绝不会启动。如果浮动触发按钮是在组件挂载之后才插入页面的，请不要设置 `data-cap-auto`，否则组件可能会在浮动模式接管之前先自动求解一次。
 
 #### i18n
 
