@@ -828,8 +828,12 @@
     // ended up without a token, and there is nothing else to wait for.
     #armSpeculativeIfPending() {
       if (!this.#speculativeRearmPending) return;
+      // A newer solve may be in flight by now: keep the request pending so
+      // *that* solve's settle consumes it, instead of swallowing the re-arm
+      // here (the deferred solve is not necessarily the last one to settle).
+      if (this.#solving) return;
       this.#speculativeRearmPending = false;
-      if (this.#solving || !this.isConnected) return;
+      if (!this.isConnected) return;
       if (this.#resolveAutoMode() !== "off") return;
       if (this.token || this.#interactionHandler) return;
       if (!this.#speculative || this.#speculative.state !== "idle") return;
@@ -1191,7 +1195,12 @@
           "We have verified you're a human, you may now continue",
         ),
       );
-      if (this.#hasHaptics) navigator.vibrate([10, 50, 20, 30, 40]);
+      // An auto solve must not vibrate, exactly like the cold path below
+      // (`!isAuto`): #autoTriggered is true for the duration of an auto solve,
+      // which is the only caller that can reach this helper.
+      if (this.#hasHaptics && !this.#autoTriggered) {
+        navigator.vibrate([10, 50, 20, 30, 40]);
+      }
 
       this.#logInvisible();
       this.#resetSpeculativeState();
@@ -1690,13 +1699,19 @@
         }
       } finally {
         // Only the current solve may clear these — a stale one finishing late
-        // must not unlock (or lock) a newer solve's "solving" state, nor arm a
-        // speculative pre-solve that would race it.
+        // must not unlock (or lock) a newer solve's "solving" state. Its
+        // reset()/disconnect callback cleared #autoTriggered instead.
         if (gen === this.#solveGen) {
           this.#solving = false;
           this.#autoTriggered = false;
-          this.#armSpeculativeIfPending();
         }
+        // The deferred speculative re-arm is *not* gen-guarded: it was
+        // deferred because a solve was in flight, and this is that solve
+        // settling. A stale solve's request is exactly the one the deferral
+        // was waiting for, so consuming the pending flag here is the point.
+        // #armSpeculativeIfPending() keeps it pending if a newer solve has
+        // taken over in the meantime.
+        this.#armSpeculativeIfPending();
       }
     }
 
@@ -2315,7 +2330,17 @@
       // commit its token or repaint the UI after the reset, and the button has
       // to become usable again immediately.
       this.#solveGen++;
+      // Re-arm the speculative machinery while #solving is still true for the
+      // just-invalidated solve: its HTTP request keeps running (reset() only
+      // bumps the generation), so #attachInteractionListeners() must see it
+      // and defer via #speculativeRearmPending instead of racing a second
+      // challenge against it. The stale solve's finally consumes the pending
+      // flag once that request has really settled.
+      if (this.#speculative) this.#resetSpeculativeState();
       this.#solving = false;
+      // This solve no longer owns the UI: drop the auto marker here because
+      // its gen-guarded finally won't do it.
+      this.#autoTriggered = false;
       if (this.#resetTimer) {
         clearTimeout(this.#resetTimer);
         this.#resetTimer = null;
@@ -2324,7 +2349,6 @@
         clearTimeout(this.#speculativeTimer);
         this.#speculativeTimer = null;
       }
-      if (this.#speculative) this.#resetSpeculativeState();
       this.token = null;
       this.dispatchEvent("reset");
       this.#setToken("");
@@ -2342,6 +2366,10 @@
       // reset() below bumps the generation again, which is harmless.
       this.#solveGen++;
       this.#solving = false;
+      // The invalidated solve's gen-guarded finally will not run, so drop the
+      // auto-solve marker here (it suppresses error haptics; a widget that is
+      // no longer solving anything must not inherit it).
+      this.#autoTriggered = false;
       this.#autoReady = false;
       this.removeEventListener("progress", this.boundHandleProgress);
       this.removeEventListener("solve", this.boundHandleSolve);

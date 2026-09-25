@@ -625,6 +625,62 @@ if (!SHOULD_RUN_E2E) {
       }
     }, 90_000);
 
+    test("a reset mid-solve defers the speculative re-arm until the stale request ends (F2)", async () => {
+      resetCounters();
+      challengeDelayMs = 4000;
+      try {
+        await mountWidget({ attrs: { "data-cap-auto": "load" } });
+        await page.waitForFunction(() => window.__progressEvents.length > 0);
+        // Wait until the delayed challenge really is on the wire.
+        while (challengeRequests < 1) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        const requestAt = Date.now();
+
+        await page.evaluate(() => {
+          document.getElementById("cap").setAttribute("data-cap-auto", "off");
+          document.getElementById("cap").reset();
+        });
+
+        // Activity *after* the reset. Before the fix, reset() cleared
+        // #solving before re-arming speculation, so this immediately attached
+        // the interaction listeners and asked for a second challenge while the
+        // invalidated solve's request was still running.
+        await page.mouse.move(120, 120);
+        await page.mouse.move(240, 240);
+        const armedAt = Date.now();
+
+        // Sample past the 2.5s speculative delay (SPECULATIVE_DELAY_MS), still
+        // inside the stale request's 4s window: no second challenge may show
+        // up, and the two requests must never overlap.
+        while (Date.now() - armedAt < 3000) {
+          expect(challengeRequests).toBe(1);
+          expect(maxInFlight).toBe(1);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        // The sampling above really happened before the stale challenge landed.
+        expect(Date.now() - requestAt).toBeLessThan(4000);
+
+        // The stale response is already queued: only its (gen-guarded) solve
+        // settling may consume the deferred re-arm and attach the listeners
+        // again, so further activity is allowed to start a new pre-solve.
+        challengeDelayMs = 0;
+        let secondChallenge = false;
+        const deadline = Date.now() + 15_000;
+        let nudge = 0;
+        while (!secondChallenge && Date.now() < deadline) {
+          await page.mouse.move(120 + (nudge++ % 40), 120);
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          secondChallenge = challengeRequests >= 2;
+        }
+        expect(secondChallenge).toBe(true);
+        // …and never while the stale request was still in flight.
+        expect(maxInFlight).toBe(1);
+      } finally {
+        challengeDelayMs = 0;
+      }
+    }, 120_000);
+
     test("an auto failure does not vibrate, a manual one does", async () => {
       resetCounters();
       failChallenges = true;
@@ -710,6 +766,41 @@ if (!SHOULD_RUN_E2E) {
         expect(challengeRequests).toBe(1);
         expect(redeemRequests).toBe(1);
         expect(maxInFlight).toBe(1);
+      } finally {
+        challengeDelayMs = 0;
+      }
+    }, 90_000);
+
+    test("an auto solve served from the speculative cache does not vibrate (F5)", async () => {
+      resetCounters();
+      challengeDelayMs = 800;
+      try {
+        await mountWidget();
+        await page.waitForTimeout(300);
+
+        // Click-only widget: arm and start the speculative pre-solver, then
+        // turn auto on while that pre-solve is still in flight (probe E).
+        await page.mouse.move(120, 120);
+        await page.mouse.move(240, 240);
+        await page.waitForTimeout(2700);
+
+        await page.evaluate(() =>
+          document
+            .getElementById("cap")
+            .setAttribute("data-cap-auto", "visible"),
+        );
+
+        await waitForSolve(1);
+        await page.waitForTimeout(500);
+
+        const state = await readState();
+        // The auto solve took the speculative-cache commit path…
+        expect(state.solves.length).toBe(1);
+        expect(state.hidden).toBe(state.solves[0]);
+        expect(challengeRequests).toBe(1);
+        expect(redeemRequests).toBe(1);
+        // …which must be just as silent as the cold path is for auto solves.
+        expect(await page.evaluate(() => window.__vibrations.length)).toBe(0);
       } finally {
         challengeDelayMs = 0;
       }
