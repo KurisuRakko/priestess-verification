@@ -6,6 +6,7 @@
  *   worker/web/src 下的 .css           React 前端（展示页 / 门禁页）自己的样式
  *   worker/web/src 下的 .ts / .tsx     React 前端源码
  *   worker/src/demo-page.js、gate-page.js 服务端页面壳（首帧 HTML、style 属性）
+ *   worker/src/admin/admin.css、admin.client.js、page.js  后台（不走 React，单独一组）
  *
  * 规则（注释里的内容不算）：
  *   - CSS（逐条声明）：裸 hex（只有 mask 声明里的 #000 / #fff 例外）、rgb/hsl/hwb/lab/lch/
@@ -20,6 +21,8 @@
  *   - 样式入口顺序：worker/web/src/shared/base.css 前两条 @import 必须依次是
  *     '@rakko/design-system/tokens.css' 与 '@rakko/react/styles.css'；每个入口 main.tsx 第一条 import
  *     必须是 ../shared/base.css；两个页面壳必须内联 ./generated/<入口>.css。
+ *     后台页面必须内联 vendor 的 tokens.generated.css、glass.css、state-layer.css，且 vendor
+ *     样式在页面样式之前。
  *   - vendor 完整性（给了 RAKKO_DESIGN_DIR 时）：vendor/rakko-design/design-system/src/* 与
  *     react/src 整棵树（排除 *.test.ts、*.test.tsx、vitest.setup.ts）跟上游逐字节一致、文件集合一致；
  *     tokens.generated.css 的两段与 scaffold 原文一致。
@@ -40,6 +43,12 @@ const SHELLS = [
   { file: join(ROOT, "worker/src/demo-page.js"), entry: "showcase" },
   { file: join(ROOT, "worker/src/gate-page.js"), entry: "gate" },
 ];
+// 后台是服务端拼的静态页（admin.css + admin.client.js 内联），不在 web/src 里，单独查。
+const ADMIN = {
+  css: join(ROOT, "worker/src/admin/admin.css"),
+  client: join(ROOT, "worker/src/admin/admin.client.js"),
+  page: join(ROOT, "worker/src/admin/page.js"),
+};
 
 const issues = [];
 const rel = (p) => relative(ROOT, p).split("\\").join("/");
@@ -112,9 +121,9 @@ const COLOR_FUNCTION = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/;
 const MASK_HEX = /^#(?:000|fff|000000|ffffff)$/i;
 
 /** 带 data-glass 的元素的 class / id（页面骨架里写死的那些），用来查「玻璃被藏起来」。 */
-function glassSelectors() {
+function glassSelectors(files) {
   const names = new Set();
-  const sources = [...SHELLS.map((s) => read(s.file)), ...SCRIPT_FILES.map(read)];
+  const sources = files.map(read);
   for (const text of sources) {
     for (const tag of text.matchAll(/<[a-z][^<>]*data-glass="[^"]+"[^<>]*>/g)) {
       for (const m of tag[0].matchAll(/\b(class|id)="([^"]+)"/g)) {
@@ -127,7 +136,7 @@ function glassSelectors() {
   return [...names];
 }
 
-for (const PAGE_CSS of CSS_FILES) {
+function checkCss(PAGE_CSS, glass) {
   const css = stripComments(read(PAGE_CSS), "css");
 
   // 逐条声明：prop: value
@@ -165,7 +174,6 @@ for (const PAGE_CSS of CSS_FILES) {
   });
 
   // 玻璃表面不许被 opacity:0 / display:none / visibility:hidden 藏起来（出生规则）。
-  const glass = glassSelectors();
   each(css, /\s*([^{}\s][^{}]*)\{([^{}]*)\}/g, (m) => {
     const selector = m[1];
     const line = lineOf(css, m.index + m[0].indexOf(selector));
@@ -178,8 +186,12 @@ for (const PAGE_CSS of CSS_FILES) {
   });
 }
 
+const webGlass = glassSelectors([...SHELLS.map((s) => s.file), ...SCRIPT_FILES]);
+for (const file of CSS_FILES) checkCss(file, webGlass);
+checkCss(ADMIN.css, glassSelectors([ADMIN.page, ADMIN.client]));
+
 // ------------------------------------------------------------------ JS / HTML 骨架
-for (const file of [...SCRIPT_FILES, ...SHELLS.map((s) => s.file)]) {
+for (const file of [...SCRIPT_FILES, ...SHELLS.map((s) => s.file), ADMIN.client, ADMIN.page]) {
   const js = stripComments(read(file), "js");
   each(js, /backdrop-filter/g, (_m, line) => add(file, line, "backdrop-filter 只能来自 glass.css（用 data-glass）"));
   each(js, /\b(?:fill|stroke)="(?!currentColor|none)[^"]*"/g, (m, line) => add(file, line, `SVG 颜色写死：${m[0]}（用 currentColor）`));
@@ -212,6 +224,18 @@ for (const { file, entry } of SHELLS) {
   const page = read(file);
   if (!page.includes(`./generated/${entry}.css`)) add(file, 1, `没有内联 ./generated/${entry}.css`);
   if (!page.includes(`./generated/${entry}.client.js`)) add(file, 1, `没有内联 ./generated/${entry}.client.js`);
+}
+{
+  const page = read(ADMIN.page);
+  const imports = [
+    "vendor/rakko-design/tokens.generated.css",
+    "vendor/rakko-design/design-system/src/glass.css",
+    "vendor/rakko-design/design-system/src/state-layer.css",
+  ];
+  for (const path of imports) if (!page.includes(path)) add(ADMIN.page, 1, `没有内联 ${path}`);
+  const vendorAt = page.search(/<style[^>]*data-vendor/);
+  const pageAt = page.search(/<style[^>]*data-page/);
+  if (vendorAt === -1 || pageAt === -1 || vendorAt > pageAt) add(ADMIN.page, 1, "vendor 样式必须在页面样式之前内联");
 }
 
 // ------------------------------------------------------------------ vendor 完整性
@@ -256,5 +280,5 @@ if (issues.length) {
   process.exit(1);
 }
 console.log(
-  `[check-design] OK（web/src ${CSS_FILES.length} 个 CSS / ${SCRIPT_FILES.length} 个 TS(X) + 页面壳${RAKKO_DIR ? " + vendor 完整性" : ""}）`,
+  `[check-design] OK（web/src ${CSS_FILES.length} 个 CSS / ${SCRIPT_FILES.length} 个 TS(X) + 页面壳 + 后台${RAKKO_DIR ? " + vendor 完整性" : ""}）`,
 );

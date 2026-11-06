@@ -514,6 +514,21 @@ describe("gate: GATE_UPSTREAMS reverse proxy", () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 
+  it("gates /admin and site routes on an upstream host too", async () => {
+    const upstream = vi.fn();
+    vi.stubGlobal("fetch", upstream);
+    for (const [path, init] of [
+      ["/admin", { headers: { Accept: HTML_ACCEPT, "User-Agent": UA } }],
+      ["/0123456789/challenge", { method: "POST" }],
+    ]) {
+      const res = await callWorker(`https://app.example${path}`, init, {
+        GATE_UPSTREAMS: UPSTREAMS,
+      });
+      expect(res.status, path).toBe(403);
+    }
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
   it("proxies passed requests without the pass cookie", async () => {
     const upstream = vi.fn(async () =>
       new Response("from origin", { status: 201, headers: { "X-Origin": "yes" } }),

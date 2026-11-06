@@ -46,7 +46,7 @@
 import { sha256Hex } from "../../core/src/crypto.js";
 import { renderGatePage, renderProtectedPage } from "./gate-page.js";
 import {
-  GATE_SCOPE,
+  GATE_TENANT,
   consumeScopedToken,
   handleChallenge,
   handleRedeem,
@@ -444,7 +444,7 @@ async function handlePass(request, env, config, url) {
     return jsonResponse({ ok: false, error: "Missing required parameters" }, 400);
   }
 
-  const result = await consumeScopedToken(token, env, GATE_SCOPE);
+  const result = await consumeScopedToken(token, env, GATE_TENANT);
   if (!result.ok) {
     return jsonResponse({ ok: false, error: result.error }, result.status);
   }
@@ -481,14 +481,14 @@ async function handleGateRoute(request, env, config, url) {
     request.headers.get("Origin") === url.origin ? url.origin : null;
 
   if (request.method === "GET" && isWidgetPath(subPath)) {
-    return widgetResponse(request, subPath, origin);
+    return widgetResponse(request, subPath);
   }
   if (request.method === "POST") {
     switch (subPath) {
       case "/challenge":
-        return handleChallenge(request, env, config, origin, GATE_SCOPE);
+        return handleChallenge(request, env, config, origin, GATE_TENANT);
       case "/redeem":
-        return handleRedeem(request, env, config, origin, GATE_SCOPE);
+        return handleRedeem(request, env, config, origin, GATE_TENANT);
       case "/pass":
         return handlePass(request, env, config, url);
       case "/logout":
