@@ -11,15 +11,18 @@
 #
 # 产物（vendor/rakko-design/，只能由本脚本生成，不许手改）：
 #   design-system/src/*     逐字拷贝（tokens / glass / state-layer / layers / ripple / context-action …）
+#                           注：layers.css 是上游 react/src/styles.css 的第一个 @import，漏了它整条
+#                           react 样式链断掉（组件的 z-index 全是 var(--layer-*)）。
+#   react/src/**            逐字拷贝 @rakko/react 源码，排除 *.test.ts、*.test.tsx、vitest.setup.ts
 #   tokens.generated.css    生成：scaffold.html 第一个 <style> 的 :root {…} 与
 #                           [data-theme='dark'] {…} 两段原文（上游 tokens.css 是 Tailwind v4 的
 #                           @theme，浏览器不认；深色值只存在于 scaffold 的消费方主题层）
 #   VERSION                 commit / synced / source / resolved_from / ref
 #   README.md               固定说明
 #
-# 本项目没有 React 前端（展示页是 Worker 渲染的纯 HTML），所以不同步 @rakko/react。
-# 消费方：worker/src/demo-page.js 用 wrangler 的 Text 规则把 tokens.generated.css、glass.css、
-# state-layer.css 原样内联进 `/`，ripple.js / ripple-geometry.js 由 Worker 以 /design/*.js 提供。
+# 消费方：worker/web/（Vite + React）。worker/web/vite.config.ts 与 tsconfig.json 用 alias 把
+# @rakko/react、@rakko/react/styles.css、@rakko/design-system/* 指到本目录，打包结果写进
+# worker/src/generated/，再由 worker/src/demo-page.js、gate-page.js 内联进页面。
 #
 # 幂等：同一 commit 连跑两次零 diff（synced 保留首次写入的值）；上游删掉的文件会从 vendor 删掉。
 #       staging 准备好才上线，任何一步失败都不覆盖旧文件。
@@ -70,10 +73,12 @@ else
 fi
 
 DS="$SRC/design-system"
+REACT="$SRC/react"
 SCAFFOLD="$DS/templates/scaffold.html"
 
-for f in "$DS/src/glass.css" "$DS/src/state-layer.css" "$DS/src/ripple.js" \
-         "$DS/src/ripple-geometry.js" "$DS/src/tokens.css" "$SCAFFOLD"; do
+for f in "$DS/src/layers.css" "$DS/src/glass.css" "$DS/src/state-layer.css" \
+         "$DS/src/ripple.js" "$DS/src/ripple-geometry.js" "$DS/src/ripple.d.ts" \
+         "$DS/src/tokens.css" "$SCAFFOLD" "$REACT/src/index.ts" "$REACT/src/styles.css"; do
   if [ ! -f "$f" ]; then
     echo "[sync-design] 错误：源里缺少 ${f#"$SRC"/}" >&2
     exit 2
@@ -93,18 +98,32 @@ fi
 
 # ------------------------------------------------------------------ 3. staging（失败不覆盖旧文件）
 STAGE="$(mktemp -d)"
-mkdir -p "$STAGE/design-system/src"
+mkdir -p "$STAGE/design-system/src" "$STAGE/react/src"
 
-(cd "$DS/src" && find . -type f -print0) | while IFS= read -r -d '' rel; do
-  rel="${rel#./}"
-  mkdir -p "$STAGE/design-system/src/$(dirname "$rel")"
-  cp -p "$DS/src/$rel" "$STAGE/design-system/src/$rel"
+copy_tree() {
+  # copy_tree <源根> <staging 根> <排除测试 y/n>
+  local from="$1" to="$2" skip_tests="$3" rel
+  (cd "$from" && find . -type f -print0) | while IFS= read -r -d '' rel; do
+    rel="${rel#./}"
+    if [ "$skip_tests" = "y" ]; then
+      case "$rel" in
+        *.test.ts | *.test.tsx | vitest.setup.ts) continue ;;
+      esac
+    fi
+    mkdir -p "$to/$(dirname "$rel")"
+    cp -p "$from/$rel" "$to/$rel"
+  done
+}
+
+copy_tree "$DS/src" "$STAGE/design-system/src" n
+copy_tree "$REACT/src" "$STAGE/react/src" y
+
+for d in "$STAGE/design-system/src" "$STAGE/react/src"; do
+  if [ -z "$(find "$d" -type f -print0 | tr -d '\0')" ]; then
+    echo "[sync-design] 错误：staging 里 ${d#"$STAGE"/} 是空的，源结构可能变了" >&2
+    exit 3
+  fi
 done
-
-if [ -z "$(find "$STAGE/design-system/src" -type f -print0 | tr -d '\0')" ]; then
-  echo "[sync-design] 错误：staging 里 design-system/src 是空的，源结构可能变了" >&2
-  exit 3
-fi
 
 node - "$SCAFFOLD" "$HASH" "$STAGE/tokens.generated.css" <<'NODE'
 // 从 scaffold.html 的第一个 <style> 块里提取 :root 与 [data-theme='dark'] 两段原文，
@@ -185,7 +204,7 @@ cat > "$STAGE/README.md" <<'MD'
 # 外来件 · do not edit
 这是 Rakko Design 的只读副本：由 `scripts/sync-design.sh` 从上游同步，**不要手改**。缺什么就改上游 Rakko-Design 并开 PR，再重新同步。
 同步：`RAKKO_DESIGN_DIR=<上游快照> scripts/sync-design.sh`（离线）或直接 `scripts/sync-design.sh`（克隆 main）。
-版本：见 `VERSION`（commit / synced / source / resolved_from / ref）。消费方是 `worker/src/demo-page.js`。
+版本：见 `VERSION`（commit / synced / source / resolved_from / ref）。消费方是 `worker/web/`（Vite + React，产物内联进 Worker 页面）。
 MD
 
 # ------------------------------------------------------------------ 5. 上线（未变不写，上游删掉的跟着删）

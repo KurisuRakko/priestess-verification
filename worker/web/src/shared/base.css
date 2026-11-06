@@ -1,0 +1,108 @@
+/* Shared base for both bundles (showcase, gate).
+   Order contract (scripts/check-design.mjs): the first two statements are
+   tokens → @rakko/react/styles.css (the latter already carries layers /
+   state-layer / glass). Classes are pv- prefixed; rk- belongs to Rakko Design.
+   Colours, fonts and durations come from tokens only; dark values only from
+   tokens.generated.css's [data-theme='dark']. Fonts are the token stacks
+   (system fonts): nothing is fetched, the gate CSP is default-src 'none'. */
+
+@import "@rakko/design-system/tokens.css";
+@import "@rakko/react/styles.css";
+@import "./cap-widget.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-paper);
+  color: var(--color-neutral-9);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* What the server renders inside #root before React mounts, and the
+   placeholder layouts the React pages use for now. */
+.pv-shell {
+  flex: 1;
+  width: min(100%, 720px);
+  margin: 0 auto;
+  padding: 48px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pv-shell--center {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.pv-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.pv-lede {
+  margin: 0;
+  color: var(--color-neutral-7);
+}
+
+.pv-noscript {
+  margin: 0;
+  color: var(--color-error);
+}
+
+.pv-status {
+  display: block;
+  margin: 0;
+  min-height: 1.55em;
+  color: var(--color-neutral-8);
+}
+
+.pv-status[data-state="ok"] {
+  color: var(--color-success);
+}
+
+.pv-status[data-state="fail"] {
+  color: var(--color-error);
+}
+
+.pv-footer {
+  padding: 16px 20px 24px;
+  color: var(--color-neutral-6);
+  font-size: 13px;
+  text-align: center;
+}
+
+.pv-footer a {
+  color: inherit;
+}
+
+.pv-footer code {
+  font-family: var(--font-mono);
+}

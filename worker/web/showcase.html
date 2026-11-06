@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- `npm run dev:web` only: the showcase with hot reload. The real page is
+     rendered by src/demo-page.js; this mirrors its shell with a fixed config.
+     The widget and the /demo/ endpoints are proxied to `npm run dev` (8787). -->
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Priestess Verification (dev)</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="application/json" id="page-config">
+      {
+        "endpoint": "/demo/",
+        "siteverify": "/demo/siteverify",
+        "repo": "https://github.com/KurisuRakko/priestess-verification",
+        "variants": [
+          { "id": "auto", "tags": ["auto"], "auto": true },
+          { "id": "invisible", "tags": ["auto", "invisible"], "invisible": true },
+          { "id": "click", "tags": ["click"] },
+          { "id": "mascot", "tags": ["click", "mascot"], "mascot": true },
+          { "id": "mascot-auto", "tags": ["auto", "mascot"], "mascot": true, "auto": true },
+          { "id": "bare", "tags": ["click", "mascot", "bare"], "mascot": true, "bare": true },
+          { "id": "bare-auto", "tags": ["auto", "mascot", "bare"], "mascot": true, "auto": true, "bare": true }
+        ]
+      }
+    </script>
+    <script>
+      window.CAP_CUSTOM_WASM_URL = "/cap_wasm_bg.wasm";
+      window.CAP_CUSTOM_HASHWX_URL = "/hashwx.wasm";
+      window.CAP_PAKO_URL = "/pako_inflate.min.js";
+    </script>
+    <script src="/widget.js"></script>
+    <script type="module" src="/src/showcase/main.tsx"></script>
+  </body>
+</html>

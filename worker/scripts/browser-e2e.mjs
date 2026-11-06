@@ -42,14 +42,14 @@ await page.goto(new URL("/#click", baseUrl).href, {
 await page.waitForFunction(
   () =>
     document
-      .querySelector("#stage-slot cap-widget")
+      .querySelector("#stage cap-widget")
       ?.shadowRoot?.querySelector(".captcha-trigger"),
   null,
   { timeout: 20_000 },
 );
 
 await page
-  .locator("#stage-slot cap-widget .captcha-trigger")
+  .locator("#stage cap-widget .captcha-trigger")
   .click({ timeout: 20_000 });
 
 await page.waitForFunction(

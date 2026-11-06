@@ -1,8 +1,8 @@
 /**
  * Worker configuration, read from `env` on every request.
  *
- * Secrets (`CAP_SECRET`, `SITEVERIFY_SECRET`) come from `.dev.vars` locally and
- * `wrangler secret put` in production. Everything else is a plain `vars` entry
+ * Secrets (`CAP_SECRET`, `SITEVERIFY_SECRET`, the optional `GATE_COOKIE_SECRET`)
+ * come from `.dev.vars` locally and `wrangler secret put` in production. Everything else is a plain `vars` entry
  * in `wrangler.jsonc`, so it can be tuned without touching code.
  */
 
@@ -20,9 +20,11 @@ export const DEFAULTS = {
   challengeDifficulty: 4,
   instrumentationLevel: 3,
   blockAutomatedBrowsers: false,
+  gateBlockAutomatedBrowsers: true,
   tokenTtlMs: 20 * 60 * 1000,
   hashwxDifficulty: 1_000_000,
   hashwxChallengeCount: 4,
+  gatePassTtlS: 30 * 60,
 };
 
 function intVar(env, name, fallback, min, max) {
@@ -86,10 +88,103 @@ export function parseProtocols(raw) {
   return protocols;
 }
 
+/**
+ * `GATE_UPSTREAMS`: a JSON object mapping a public hostname to the origin the
+ * server-side gate proxies it to, e.g. `{"example.com":"https://origin.example.com"}`.
+ * Keys are bare hostnames (matched against the request URL's hostname, case
+ * insensitive); values must be bare `https:` origins.
+ */
+export function parseGateUpstreams(raw) {
+  const upstreams = new Map();
+  if (raw === undefined || raw === null || String(raw).trim() === "") {
+    return upstreams;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(String(raw));
+  } catch {
+    throw new Error("[config] GATE_UPSTREAMS is not valid JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      "[config] GATE_UPSTREAMS must be a JSON object of host -> https origin",
+    );
+  }
+  for (const [host, target] of Object.entries(parsed)) {
+    const name = host.trim().toLowerCase();
+    let hostUrl;
+    try {
+      hostUrl = new URL(`https://${name}`);
+    } catch {
+      hostUrl = null;
+    }
+    if (!name || hostUrl?.hostname !== name) {
+      throw new Error(
+        `[config] GATE_UPSTREAMS keys must be bare hostnames, got ${JSON.stringify(host)}`,
+      );
+    }
+    let url;
+    try {
+      url = new URL(String(target));
+    } catch {
+      throw new Error(
+        `[config] GATE_UPSTREAMS[${JSON.stringify(host)}] is not a URL: ${JSON.stringify(target)}`,
+      );
+    }
+    if (url.protocol !== "https:") {
+      throw new Error(
+        `[config] GATE_UPSTREAMS[${JSON.stringify(host)}] must be an https: origin, got ${JSON.stringify(target)}`,
+      );
+    }
+    if (url.origin !== String(target).replace(/\/$/, "")) {
+      throw new Error(
+        `[config] GATE_UPSTREAMS[${JSON.stringify(host)}] must be a bare origin (no path), got ${JSON.stringify(target)}`,
+      );
+    }
+    upstreams.set(name, url.origin);
+  }
+  return upstreams;
+}
+
+/**
+ * `GATE_COOKIE_DOMAIN`: optional parent domain for the gate's pass cookie
+ * (`rakko.cn` or `.rakko.cn`, normalised to `rakko.cn`). Empty = host-only.
+ */
+export function parseCookieDomain(raw) {
+  if (raw === undefined || raw === null) return "";
+  const value = String(raw).trim().toLowerCase().replace(/^\./, "");
+  if (value === "") return "";
+  let url = null;
+  try {
+    url = new URL(`https://${value}`);
+  } catch {}
+  if (
+    url?.hostname !== value ||
+    !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(value) ||
+    value.split(".").some((label) => label.startsWith("-") || label.endsWith("-")) ||
+    /^[0-9.]+$/.test(value)
+  ) {
+    throw new Error(
+      `[config] GATE_COOKIE_DOMAIN must be a domain name like rakko.cn, got ${JSON.stringify(raw)}`,
+    );
+  }
+  return value;
+}
+
 export function readConfig(env) {
   return {
     capSecret: env.CAP_SECRET ?? "",
     siteverifySecret: env.SITEVERIFY_SECRET ?? "",
+    gateCookieSecret: env.GATE_COOKIE_SECRET ?? "",
+    gateUpstreams: parseGateUpstreams(env.GATE_UPSTREAMS),
+    gateCookieDomain: parseCookieDomain(env.GATE_COOKIE_DOMAIN),
+    gatePassTtlS: intVar(
+      env,
+      "GATE_PASS_TTL_S",
+      DEFAULTS.gatePassTtlS,
+      60,
+      24 * 60 * 60,
+    ),
     allowedOrigins: parseAllowedOrigins(env.ALLOWED_ORIGINS),
     protocols: parseProtocols(env.CHALLENGE_PROTOCOLS),
     challengeCount: intVar(
@@ -124,6 +219,11 @@ export function readConfig(env) {
       env,
       "BLOCK_AUTOMATED_BROWSERS",
       DEFAULTS.blockAutomatedBrowsers,
+    ),
+    gateBlockAutomatedBrowsers: boolVar(
+      env,
+      "GATE_BLOCK_AUTOMATED_BROWSERS",
+      DEFAULTS.gateBlockAutomatedBrowsers,
     ),
     tokenTtlMs: intVar(
       env,

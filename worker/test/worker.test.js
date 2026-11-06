@@ -6,9 +6,8 @@ import capFloatingMinJs from "../../widget/src/cap-floating.min.js?raw";
 import mascotCheckingWebp from "../../widget/src/mascot/checking.webp";
 import mascotDoneWebp from "../../widget/src/mascot/done.webp";
 import mascotErrorWebp from "../../widget/src/mascot/error.webp";
-import rippleGeometryJs from "../../vendor/rakko-design/design-system/src/ripple-geometry.js?raw";
-import rippleJs from "../../vendor/rakko-design/design-system/src/ripple.js?raw";
-import appClientJs from "../src/demo/app.client.js?raw";
+import gateClientJs from "../src/generated/gate.client.js?raw";
+import showcaseClientJs from "../src/generated/showcase.client.js?raw";
 import { solveChallengeResponse } from "../scripts/solve.js";
 import { readConfig } from "../src/config.js";
 import { resolveAllowedOrigin } from "../src/cors.js";
@@ -69,6 +68,13 @@ async function sha256HexOf(res) {
     .digest("hex");
 }
 
+/** The page's `#page-config` JSON block, parsed. */
+function pageConfig(html) {
+  const match = /<script type="application\/json" id="page-config">([^<]*)<\/script>/.exec(html);
+  expect(match).not.toBeNull();
+  return JSON.parse(match[1]);
+}
+
 /// Normalises a Data-rule import (ArrayBuffer or typed array) to bytes.
 function toBytes(value) {
   if (value instanceof Uint8Array) return value;
@@ -76,30 +82,31 @@ function toBytes(value) {
 }
 
 describe("demo page", () => {
-  it("serves the showcase page with the provenance footer", async () => {
+  it("serves the showcase shell with the provenance footer", async () => {
     const res = await request("/");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
     const html = await res.text();
-    // The widgets are created by the page script against the demo endpoints.
-    expect(html).toContain('const ENDPOINT = "/demo/";');
-    expect(html).toContain(
-      'widget.setAttribute("data-cap-api-endpoint", ENDPOINT);',
-    );
-    expect(html).toContain("new window.Cap({ apiEndpoint: ENDPOINT })");
+    // React mounts into #root; the shell renders a first frame there.
+    expect(html).toContain('<div id="root">');
+    expect(html).toContain("<noscript>");
+    const config = pageConfig(html);
+    // The widgets run against the demo endpoints, and the token goes to the
+    // same-origin siteverify route.
+    expect(config.endpoint).toBe("/demo/");
+    expect(config.siteverify).toBe("/demo/siteverify");
     // The mascot variants need no image URL: the widget's default base
     // derives from the /widget.js script directory.
     expect(html).not.toContain("CAP_MASCOT_URL");
     expect(html).toMatch(/<script src="\/widget\.js\?v=[0-9a-f]{12}"><\/script>/);
-    expect(html).toContain('fetch("/demo/siteverify"');
     expect(html).toContain("Based on Cap by Tiago (Apache-2.0)");
     expect(html).not.toContain(SITEVERIFY_SECRET);
     expect(html).not.toContain(CAP_SECRET);
   });
 
   it("offers all seven variants", async () => {
-    const html = await (await request("/")).text();
-    for (const id of [
+    const { variants } = pageConfig(await (await request("/")).text());
+    expect(variants.map((v) => v.id)).toEqual([
       "auto",
       "invisible",
       "click",
@@ -107,46 +114,34 @@ describe("demo page", () => {
       "mascot-auto",
       "bare",
       "bare-auto",
-    ]) {
-      expect(html, id).toContain(`id: "${id}"`);
-    }
+    ]);
+    expect(variants.find((v) => v.id === "invisible").invisible).toBe(true);
     // The two background-free variants draw no card of their own.
-    expect(html).toContain(
-      "--cap-background: transparent; --cap-border-color: transparent",
-    );
+    expect(variants.filter((v) => v.bare).map((v) => v.id)).toEqual([
+      "bare",
+      "bare-auto",
+    ]);
   });
 
-  it("inlines Rakko Design ahead of the page styles", async () => {
+  it("sets the theme before the first frame", async () => {
     const html = await (await request("/")).text();
-    const vendor = html.indexOf('<style data-vendor="rakko-design">');
-    const page = html.indexOf("<style data-page>");
-    expect(vendor).toBeGreaterThan(-1);
-    expect(page).toBeGreaterThan(vendor);
-    // tokens, glass material and state layer all come from the vendor copy
-    expect(html.slice(vendor, page)).toContain("--glass-blur");
-    expect(html.slice(vendor, page)).toContain("[data-glass='panel']");
-    expect(html.slice(vendor, page)).toContain("[data-ripple]");
-    expect(html).toContain('data-glass="panel"');
-    expect(html).toMatch(
-      /import \{ installRippleFeedback \} from "\/design\/ripple\.js\?v=[0-9a-f]{12}";/,
-    );
-    // Only the vendored glass.css may declare the blur.
-    expect(html.slice(page)).not.toContain("backdrop-filter");
+    const boot = html.indexOf('localStorage.getItem("pv-theme")');
+    expect(boot).toBeGreaterThan(-1);
+    expect(boot).toBeLessThan(html.indexOf("<style"));
   });
 
-  it("inlines the page CSS and script whole, without closing them early", async () => {
+  it("inlines the React bundle whole, after the widget script", async () => {
     const html = await (await request("/")).text();
-    expect(appClientJs).not.toMatch(/<\/?script/i);
-    expect(html).toContain(`<script>\n${appClientJs}\n    </script>`);
-    // Vitest hands CSS imports to tests as empty strings, so check the page
-    // style block through its last rule instead of byte for byte.
-    const pageStart = html.indexOf("<style data-page>");
-    const pageBlock = html.slice(
-      pageStart,
-      html.indexOf("</style>", pageStart),
+    expect(showcaseClientJs).not.toMatch(/<\/script/i);
+    expect(html).toContain(`<script>\n${showcaseClientJs}\n    </script>`);
+    expect(html.indexOf(showcaseClientJs)).toBeGreaterThan(
+      html.indexOf('<script src="/widget.js?v='),
     );
-    expect(pageBlock).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(pageBlock.trimEnd().endsWith("}")).toBe(true);
+    // Rakko Design comes inside the bundle's stylesheet; nothing is fetched
+    // for styles or design runtime any more.
+    expect(html).toContain('<style data-app="showcase">');
+    expect(html).not.toContain("/design/");
+    expect(html).not.toContain("fonts.googleapis");
   });
 
   it("points the widget's wasm and pako fetches at this origin", async () => {
@@ -175,7 +170,6 @@ describe("demo page", () => {
     expect(urls.map((u) => u.path).sort()).toEqual(
       [
         "/cap_wasm_bg.wasm",
-        "/design/ripple.js",
         "/hashwx.wasm",
         "/pako_inflate.min.js",
         "/widget.js",
@@ -190,6 +184,49 @@ describe("demo page", () => {
         `"sha256-${(await sha256HexOf(res)).slice(0, 32)}"`,
       );
       expect(res.headers.get("etag").slice(8, 20), path).toBe(version);
+    }
+  });
+});
+
+describe("generated front end", () => {
+  // `npm run build:web` writes src/generated/; it is checked in.
+  it("has both bundles, non-empty and safe to inline", () => {
+    for (const [name, text] of [
+      ["showcase.client.js", showcaseClientJs],
+      ["gate.client.js", gateClientJs],
+    ]) {
+      expect(text.length, name).toBeGreaterThan(1000);
+      expect(text, name).not.toMatch(/<\/script/i);
+      // `<!--` would let a later `<script` switch the HTML parser into the
+      // double-escaped state, where `</script>` no longer ends the element.
+      expect(text, name).not.toContain("<!--");
+    }
+  });
+
+  it("inlines each page's stylesheet with Rakko Design in it", async () => {
+    // Vitest hands CSS imports to tests as empty strings, so the stylesheets
+    // are checked as the Worker inlines them.
+    const pages = [
+      ["showcase", await (await request("/")).text()],
+      [
+        "gate",
+        await (
+          await request("/protected", { headers: { Accept: "text/html" } })
+        ).text(),
+      ],
+    ];
+    for (const [name, html] of pages) {
+      const start = html.indexOf(`<style data-app="${name}">`);
+      expect(start, name).toBeGreaterThan(-1);
+      const css = html.slice(start, html.indexOf("</style>", start));
+      expect(css.length, name).toBeGreaterThan(10_000);
+      // tokens (with the dark theme), the glass material, the widget theming
+      expect(css, name).toContain("--color-paper");
+      expect(css, name).toContain("[data-theme=");
+      expect(css, name).toContain("[data-glass");
+      expect(css, name).toContain("--cap-background");
+      expect(css, name).not.toContain("fonts.googleapis");
+      expect(css, name).not.toMatch(/@import\s+url\(/);
     }
   });
 });
@@ -269,17 +306,10 @@ describe("widget assets", () => {
     }
   });
 
-  it("serves the Rakko Design ripple modules from the vendor copy", async () => {
-    for (const [path, expected] of [
-      ["/design/ripple.js", rippleJs],
-      ["/design/ripple-geometry.js", rippleGeometryJs],
-    ]) {
-      const res = await request(path);
-      expect(res.status, path).toBe(200);
-      expect(res.headers.get("content-type"), path).toBe(
-        "application/javascript; charset=utf-8",
-      );
-      expect(await res.text(), path).toBe(expected);
+  it("no longer serves the Rakko Design ripple modules", async () => {
+    // The ripple runtime is bundled into the React app now.
+    for (const path of ["/design/ripple.js", "/design/ripple-geometry.js"]) {
+      expect((await request(path)).status, path).toBe(404);
     }
   });
 

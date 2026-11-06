@@ -11,8 +11,6 @@
  *   GET  /mascot/checking.webp  data-cap-mascot art, served from this origin
  *   GET  /mascot/error.webp     (the widget's default <script dir>/mascot/ base)
  *   GET  /mascot/done.webp
- *   GET  /design/ripple.js    Rakko Design ripple runtime for the demo page
- *   GET  /design/ripple-geometry.js
  *   POST /challenge           challenge generation        (scope "site", CORS)
  *   POST /redeem              challenge redemption        (scope "site", CORS)
  *   POST /siteverify          server-to-server validation (no CORS)
@@ -20,6 +18,20 @@
  *   POST /demo/redeem         challenge redemption        (scope "demo", CORS)
  *   POST /demo/siteverify     same-origin-only validation for the demo page,
  *                             accepts demo-scoped tokens only
+ *
+ * Server-side gate (`gate.js`), checked before every route above:
+ *   ANY  <GATE_UPSTREAMS host>/*  whole site gated; with a valid pass cookie the
+ *                             request is reverse-proxied to that host's origin
+ *   GET  /protected, /protected/*  gated on every other host; a valid pass gets
+ *                             the built-in example page
+ *   GET  /__gate/widget.js, /__gate/mascot/*.webp, /__gate/*.wasm,
+ *        /__gate/pako_inflate.min.js
+ *                             the assets above, same-origin for the gate page
+ *   POST /__gate/challenge    challenge generation        (scope "gate")
+ *   POST /__gate/redeem       challenge redemption        (scope "gate")
+ *   POST /__gate/pass         same-origin: consumes a gate token, sets the pass
+ *   POST /__gate/logout       same-origin: clears the pass
+ *   (`/__gate/*` is reserved on every host and never proxied.)
  */
 
 import { setHashwxModule } from "../../core/src/index.js";
@@ -27,6 +39,7 @@ import hashwxWasmModule from "../../core/vendor/hashwx.wasm";
 import { readConfig } from "./config.js";
 import { corsHeaders, preflightHeaders, resolveAllowedOrigin } from "./cors.js";
 import { renderDemoPage } from "./demo-page.js";
+import { handleGate } from "./gate.js";
 import {
   DEMO_SCOPE,
   SITE_SCOPE,
@@ -65,7 +78,6 @@ function demoAssetUrls() {
     capWasm: versionedPath(ASSET_PATHS.capWasm),
     hashwx: versionedPath(ASSET_PATHS.hashwx),
     pako: versionedPath(ASSET_PATHS.pako),
-    ripple: versionedPath(ASSET_PATHS.ripple),
   };
   return demoAssets;
 }
@@ -80,6 +92,17 @@ export default {
     } catch (error) {
       // The message can quote the raw env var, so it stays in the logs.
       console.error("[priestess-verification]", error);
+      return jsonResponse({ success: false, error: "Internal error" }, 500);
+    }
+
+    // The gate goes first: on a gated host it owns every path, including
+    // OPTIONS, and on this Worker's own host it only claims `/protected*` and
+    // `/__gate/*` (it returns `null` for everything else).
+    try {
+      const gated = await handleGate(request, env, config);
+      if (gated) return gated;
+    } catch (error) {
+      console.error("[priestess-verification] gate", error);
       return jsonResponse({ success: false, error: "Internal error" }, 500);
     }
 

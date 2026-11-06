@@ -130,6 +130,14 @@
   --text-icon-lg: 18px;
 }
 
+@theme {
+  /* 组件圆角：控件（按钮、输入、chip）4px，卡片与工具条 6px。
+     取自 templates/scaffold.html 现用值，只是给它们起名，不改视觉；scaffold 的 :root 镜像同值。
+     Tailwind 由此生成 rounded-control / rounded-card。 */
+  --radius-control: 4px;
+  --radius-card: 6px;
+}
+
 @custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
 
 /*
@@ -143,6 +151,18 @@
   --motion-duration-exit: 180ms;
   --motion-delay-tooltip: 500ms;
   --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  /* 弹簧曲线（react/src/spring.ts 的 SPRINGS 展开成 linear()，由 spring.test.ts 锁定）：
+     时长与曲线成对使用：transition: transform var(--motion-spring-smooth-duration) var(--motion-spring-smooth)。 */
+  --motion-spring-snappy: linear(0, 0.118, 0.277, 0.462, 0.615, 0.731, 0.802, 0.865, 0.908, 0.934, 0.955, 0.97, 0.978, 0.986, 0.99, 0.994, 0.995, 0.997, 0.998, 0.999, 1);
+  --motion-spring-snappy-duration: 475ms;
+  --motion-spring-smooth: linear(0, 0.049, 0.152, 0.276, 0.404, 0.523, 0.628, 0.716, 0.789, 0.847, 0.891, 0.925, 0.95, 0.969, 0.981, 0.99, 0.996, 0.999, 1.001, 1.002, 1.003, 1.003, 1.003, 1.002, 1.002, 1.002, 1.001, 1);
+  --motion-spring-smooth-duration: 675ms;
+  --motion-spring-gentle: linear(0, 0.018, 0.059, 0.114, 0.178, 0.246, 0.314, 0.38, 0.444, 0.513, 0.568, 0.618, 0.663, 0.703, 0.74, 0.772, 0.801, 0.827, 0.849, 0.869, 0.886, 0.901, 0.915, 0.926, 0.936, 0.945, 0.954, 0.96, 0.966, 0.97, 0.974, 0.978, 0.981, 0.984, 0.986, 0.988, 0.99, 0.991, 0.992, 0.994, 0.994, 0.995, 0.996, 0.997, 0.997, 0.997, 0.998, 0.998, 0.998, 0.999, 0.999, 1);
+  --motion-spring-gentle-duration: 1287ms;
+  --motion-spring-page: linear(0, 0.09, 0.249, 0.412, 0.555, 0.67, 0.758, 0.825, 0.874, 0.91, 0.936, 0.955, 0.968, 0.977, 0.984, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 1);
+  --motion-spring-page-duration: 550ms;
+  /* 过冲曲线：开关拇指这类小件「啪」地到位（冲过头再回来）；配 smooth / snappy 弹簧时长用，由 motion.test.ts 锁定。 */
+  --motion-ease-pop: cubic-bezier(0.34, 2.1, 0.5, 1);
   --state-hover-opacity: 4%;
   --state-focus-opacity: 8%;
   --state-pressed-opacity: 12%;
@@ -161,10 +181,13 @@
   /* 玻璃材质的其余组成（组合方式见 src/glass.css，用法见 references/glass.md）。
      panel 用 58% 而不是 chrome 的 45%：浮层会落在任意内容之上，正文要在它上面可读。
      浅色纸底盖在浅色页面上，alpha 高于 ~75% 时材质几乎不可见；可读性靠饱和与纸色，不靠 alpha。
-     高光 0.59 两种主题通用（用户在深色主题下定的值），主题层不再单独覆盖它。
+     高光 0.59 只服务浅色：它是盖在浅色纸底上的纸面反光，深色主题由主题层改成
+     transparent——同一层白光落在 58% 的近黑面板上只会糊住面板顶部第一行文字（见
+     docs/2026-09-21-dark-glass-highlight.md）。
      遮罩只压暗不模糊（全屏 backdrop 每帧读回整个视口，是系统里最贵的东西），
      且用纯黑而非 n-10：n-10 在深色主题会翻成近白，遮罩就变成了漂白。
-     whisper 阴影在深色主题由消费方主题层覆盖（同 --color-border）。 */
+     高光以外的深色覆盖值（whisper 阴影，同 --color-border）也归主题层，落在 scaffold 的
+     [data-theme='dark'] 块里。 */
   --glass-panel-opacity: 58%;
   --glass-scrim-opacity: 34%;
   --glass-highlight: rgba(255, 255, 255, 0.59);

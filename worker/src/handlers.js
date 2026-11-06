@@ -19,6 +19,11 @@
  *
  * `/demo/siteverify` therefore only ever accepts demo-scoped tokens: it cannot
  * be used as a secret-free `/siteverify` for real tokens.
+ *
+ * The server-side gate (`gate.js`) is a third scope, `"gate"`, with its own
+ * `gate:` key prefix: `/__gate/challenge` + `/__gate/redeem` mint tokens that
+ * only `/__gate/pass` consumes, and neither `/siteverify` nor
+ * `/demo/siteverify` accepts them (nor does `/__gate/pass` accept theirs).
  */
 
 import { randomHex, sha256Hex } from "../../core/src/crypto.js";
@@ -34,6 +39,8 @@ import {
 export const SITE_SCOPE = "site";
 export const DEMO_SCOPE = "demo";
 export const DEMO_KEY_PREFIX = "demo:";
+export const GATE_SCOPE = "gate";
+export const GATE_KEY_PREFIX = "gate:";
 
 const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
@@ -48,7 +55,9 @@ export function jsonResponse(body, status, extraHeaders = {}) {
 }
 
 function keyPrefixFor(scope) {
-  return scope === DEMO_SCOPE ? DEMO_KEY_PREFIX : "";
+  if (scope === DEMO_SCOPE) return DEMO_KEY_PREFIX;
+  if (scope === GATE_SCOPE) return GATE_KEY_PREFIX;
+  return "";
 }
 
 function tokenStoreFor(env, key) {
@@ -88,8 +97,15 @@ function redeemFailure(result, headers) {
 }
 
 function challengeOptions(config, scope) {
+  // The gate hands out a pass that unlocks a whole site, so it rejects
+  // automated browsers by default (GATE_BLOCK_AUTOMATED_BROWSERS): otherwise a
+  // script skips the environment check by reporting `instr_blocked` and only
+  // pays for the proof of work.
+  const isGate = scope === GATE_SCOPE;
   const instrumentation = {
-    blockAutomatedBrowsers: config.blockAutomatedBrowsers,
+    blockAutomatedBrowsers: isGate
+      ? config.gateBlockAutomatedBrowsers
+      : config.blockAutomatedBrowsers,
     obfuscationLevel: config.instrumentationLevel,
   };
 
@@ -106,7 +122,10 @@ function challengeOptions(config, scope) {
   const options = {
     scope,
     format: 2,
-    protocols: config.protocols,
+    protocols:
+      isGate && !config.protocols.includes("instrumentation")
+        ? [...config.protocols, "instrumentation"]
+        : config.protocols,
     instrumentation,
   };
   if (config.protocols.includes("sha256-pow")) {
@@ -220,6 +239,14 @@ async function consumeWithPrefix(response, env, keyPrefix) {
     (key, secretHash) => tokenStoreFor(env, key).consumeToken(key, secretHash),
     keyPrefix,
   );
+}
+
+/**
+ * Single-use consumption of a token minted under `scope`, for routes that
+ * verify tokens in-process instead of through `/siteverify` (the gate).
+ */
+export function consumeScopedToken(token, env, scope) {
+  return consumeWithPrefix(token, env, keyPrefixFor(scope));
 }
 
 export async function handleSiteverify(request, env, config) {

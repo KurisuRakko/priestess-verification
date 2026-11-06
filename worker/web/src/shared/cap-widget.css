@@ -1,0 +1,28 @@
+/* <cap-widget> themed onto Rakko Design through the widget's public --cap-*
+   variables, so it follows light and dark mode (see cap-widget.tsx). */
+cap-widget.pv-cap {
+  --cap-background: var(--color-paper);
+  --cap-border-color: var(--color-border);
+  --cap-color: var(--color-neutral-9);
+  --cap-checkbox-background: var(--color-neutral-1);
+  --cap-checkbox-border: 1px solid var(--color-neutral-5);
+  --cap-spinner-color: var(--color-accent);
+  --cap-spinner-background-color: var(--color-neutral-3);
+  --cap-focus-ring: var(--color-accent);
+  --cap-font: var(--font-sans);
+  /* the widget draws its own 14px corner; the shadow has to follow it */
+  border-radius: 14px;
+  box-shadow: var(--shadow-whisper);
+}
+
+/* "No background": no card fill or border, the host page shows through. */
+cap-widget.pv-cap--bare {
+  --cap-background: transparent;
+  --cap-border-color: transparent;
+  --cap-checkbox-background: color-mix(
+    in srgb,
+    var(--color-paper) 60%,
+    transparent
+  );
+  box-shadow: none;
+}

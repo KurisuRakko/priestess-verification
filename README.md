@@ -47,13 +47,16 @@ Without those three lines the widget still works, but it makes a cross-origin re
 | Route | Purpose |
 | --- | --- |
 | `GET /` | showcase page: seven live widget variants (auto, invisible, click, mascot, mascot + auto, background-free mascot, background-free mascot + auto), each verified through `/demo/siteverify` |
-| `GET /design/ripple.js`, `GET /design/ripple-geometry.js` | Rakko Design's ripple runtime for the showcase page, from `vendor/rakko-design/` |
 | `GET /widget.js`, `GET /widget-floating.js` | this repo's `widget/src/cap.min.js` / `cap-floating.min.js`, byte for byte |
 | `GET /cap_wasm_bg.wasm`, `GET /hashwx.wasm` | this repo's `wasm/src/browser/*.wasm`, byte for byte |
 | `GET /pako_inflate.min.js` | `pako@2.1.0` `dist/pako_inflate.min.js` (sha256 `fa226c8e…f8bb43`, identical to the jsDelivr copy) |
 | `POST /challenge`, `POST /redeem` | challenge generation / redemption via `core/` (scope `site`) |
 | `POST /siteverify` | server-to-server validation for your backend |
 | `POST /demo/challenge`, `POST /demo/redeem`, `POST /demo/siteverify` | the demo page's own endpoints (scope `demo`); `/demo/siteverify` needs no secret and only accepts demo-scoped tokens |
+| `GET /protected`, `GET /protected/*` | server-side gate demo: a full-page challenge (403) until the visitor holds a pass, then a built-in example page |
+| any path on a `GATE_UPSTREAMS` host | server-side gate in front of a whole site: challenge page until the visitor holds a pass, then reverse-proxied to the upstream origin |
+| `GET /__gate/widget.js`, `/__gate/mascot/*.webp`, `/__gate/*.wasm`, `/__gate/pako_inflate.min.js` | the assets above under the gate's reserved prefix, so the gate page stays same-origin on every gated host |
+| `POST /__gate/challenge`, `POST /__gate/redeem`, `POST /__gate/pass`, `POST /__gate/logout` | the gate's own endpoints (scope `gate`); `/__gate/pass` (same-origin only) consumes a gate token and sets the pass cookie, `/__gate/logout` clears it |
 
 Every route whose response headers depend on `Origin` — the widget assets, the wasm/pako files, `/challenge` and `/redeem` — sends `Vary: Origin` unconditionally, including for requests without an `Origin` header, so a cached no-`Origin` variant can never be replayed to a CORS caller.
 
@@ -78,7 +81,17 @@ node scripts/browser-e2e.mjs http://127.0.0.1:8787  # real browser; fails if any
 node scripts/cpu-bench.mjs                           # CPU cost of /challenge, /redeem, /siteverify
 ```
 
-The showcase page (`worker/src/demo-page.js`, `worker/src/demo/page.css`, `worker/src/demo/app.client.js`) is styled with [Rakko Design](https://github.com/KurisuRakko/Rakko-Design). Its tokens, glass material, state layer and ripple runtime live in `vendor/rakko-design/`, which only `scripts/sync-design.sh` may write (`RAKKO_DESIGN_DIR=<local checkout> scripts/sync-design.sh` works offline); `node scripts/check-design.mjs` checks the page against the design rules (no raw colours, no `backdrop-filter` outside the vendored `glass.css`, …).
+The pages the Worker renders — the showcase at `/`, the gate page and the `/protected` example — are React apps built with [Rakko Design](https://github.com/KurisuRakko/Rakko-Design)'s `@rakko/react` primitives. The sources live in `worker/web/` (Vite + React; `src/showcase/`, `src/gate/`, `src/shared/`), and `worker/src/demo-page.js` / `gate-page.js` are server-rendered shells that inline the built bundles (the widget script, `window.CAP_*` variables, the gate's CSP nonce, the theme boot script and a `#page-config` JSON block stay in the shell). The bundles are checked in under `worker/src/generated/`, one script and one stylesheet per page family, so rebuild them after any change under `worker/web/`:
+
+```sh
+cd worker
+npm run build:web       # web/ → src/generated/{showcase,gate}.client.js + .css
+npm run typecheck:web   # tsc over web/src and the vendored @rakko/react
+npm run dev:web         # optional: Vite with hot reload on :5198 (showcase.html, gate.html),
+                        # proxying the widget and /demo/, /__gate/ to `npm run dev` on :8787
+```
+
+Rakko Design itself (tokens, glass material, state layer, ripple runtime and the `@rakko/react` sources) lives in `vendor/rakko-design/`, which only `scripts/sync-design.sh` may write (`RAKKO_DESIGN_DIR=<local checkout> scripts/sync-design.sh` works offline); `node scripts/check-design.mjs` checks `worker/web/` and the page shells against the design rules (no raw colours, no `backdrop-filter` outside the vendored `glass.css`, system font stacks only, …) and, given `RAKKO_DESIGN_DIR`, that the vendor copy matches upstream byte for byte.
 
 ### Deploy
 
@@ -116,9 +129,28 @@ const { success } = await res.json();
 
 ### Configuration
 
-All optional tuning lives in `wrangler.jsonc` under `vars` (defaults shown): `ALLOWED_ORIGINS` (`https://verify.rakko.cn`), `CHALLENGE_COUNT` (50), `CHALLENGE_SIZE` (32), `CHALLENGE_DIFFICULTY` (4), `INSTRUMENTATION_LEVEL` (3), `BLOCK_AUTOMATED_BROWSERS` (false), `TOKEN_TTL_MS` (20 min), `CHALLENGE_PROTOCOLS` (empty = format 1), `HASHWX_DIFFICULTY` (1000000), `HASHWX_CHALLENGE_COUNT` (4).
+All optional tuning lives in `wrangler.jsonc` under `vars` (defaults shown): `ALLOWED_ORIGINS` (`https://verify.rakko.cn`), `CHALLENGE_COUNT` (50), `CHALLENGE_SIZE` (32), `CHALLENGE_DIFFICULTY` (4), `INSTRUMENTATION_LEVEL` (3), `BLOCK_AUTOMATED_BROWSERS` (false), `TOKEN_TTL_MS` (20 min), `CHALLENGE_PROTOCOLS` (empty = format 1), `HASHWX_DIFFICULTY` (1000000), `HASHWX_CHALLENGE_COUNT` (4), and for the server-side gate `GATE_UPSTREAMS` (empty), `GATE_PASS_TTL_S` (1800), `GATE_COOKIE_DOMAIN` (empty = host-only), `GATE_BLOCK_AUTOMATED_BROWSERS` (true: gate challenges reject automated browsers regardless of `BLOCK_AUTOMATED_BROWSERS`).
 
 Instrumentation obfuscation levels 4-10 fall back to a weaker script inside Workers, because `esbuild` (native binary) and `javascript-obfuscator` cannot run in workerd. Keep `INSTRUMENTATION_LEVEL` at 3 (the default) unless you have measured the trade-off yourself.
+
+### Server-side gate
+
+Besides the embeddable widget, the Worker can stand in front of a whole website, like Cloudflare's challenge page: a visitor without a valid pass gets a full-screen page (status 403, `Cache-Control: no-store`, `X-Robots-Tag: noindex`, a nonce-based CSP) on which a mascot + auto widget solves a challenge by itself, trades the token for a pass cookie at `POST /__gate/pass` and reloads the page they asked for. Non-HTML requests without a pass (API calls, `POST`s, anything whose `Accept` lacks `text/html`) get `403 {"success":false,"error":"gate_required"}`. Every gate response carries a random `X-Gate-Ray` request ID, also shown in the page footer. `/__gate/*` is reserved on every gated host and always answered by the Worker, never by the upstream.
+
+On the Worker's own host only `/protected` and `/protected/*` are gated (a built-in example page with the pass's remaining time and a "clear the pass" button). To gate a real site:
+
+1. Map its public hostname to the origin that actually serves it, in `wrangler.jsonc` `vars`:
+   ```jsonc
+   "GATE_UPSTREAMS": "{\"example.com\":\"https://origin.example.com\"}"
+   ```
+   Keys are bare hostnames, values bare `https:` origins; anything else fails every request with a logged config error.
+2. Route the hostname to this Worker, e.g. `"routes": [{ "pattern": "example.com/*", "zone_name": "example.com" }, …]`. The upstream must be reachable under a hostname that is **not** routed to this Worker (otherwise the proxy loops back into the gate).
+
+Passed requests are proxied with their method, headers and body intact (`redirect: "manual"`), with `X-Forwarded-Host` / `X-Forwarded-Proto` set, our `__pv_pass` cookie removed from `Cookie`, and `Location` headers that point at the upstream origin rewritten onto the public host. `Origin` and `Referer` still name the public host, so an origin with strict CSRF checks must accept it.
+
+The pass is the `__pv_pass` cookie, `1.<exp>.<mac>`, with `HttpOnly; Secure; SameSite=Lax; Path=/` and `Max-Age` = `GATE_PASS_TTL_S` (default 1800, 60–86400). `mac` is an HMAC-SHA256 over the host (or cookie domain, below), the expiry and a SHA-256 of the `User-Agent`; it is not bound to the IP, so it survives network changes, and is checked in constant time. The key is the `GATE_COOKIE_SECRET` secret (`npx wrangler secret put GATE_COOKIE_SECRET`); when unset it is derived from `SITEVERIFY_SECRET` as HMAC-SHA256(SITEVERIFY_SECRET, `"gate-cookie"`), so rotating either secret invalidates every pass. Gate tokens are single use, and gate, site and demo tokens never cross scopes (`/__gate/pass` rejects site/demo tokens, `/siteverify` and `/demo/siteverify` reject gate tokens). The `return` path posted to `/__gate/pass` must be a same-origin path (starting with a single `/`); anything else redirects to `/`.
+
+`GATE_COOKIE_DOMAIN` (optional, e.g. `rakko.cn` or `.rakko.cn`) shares one pass across subdomains: the cookie is then set (and cleared) with `Domain=rakko.cn` and signed for the domain instead of the host, so a pass earned on `a.rakko.cn` is accepted on `b.rakko.cn` and `rakko.cn`, but never on `evil-rakko.cn` or `rakko.cn.evil.com`. A request host outside the domain keeps the host-only behaviour. Every subdomain — including ones that are not gated or not yours to trust — can then read the cookie; it only proves that a browser with this `User-Agent` passed a verification, it is not a session or an identity, so do not use it as one.
 
 ### Free plan capacity
 

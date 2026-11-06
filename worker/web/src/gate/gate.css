@@ -1,0 +1,496 @@
+/* Gate pages: the challenge (view "challenge") and the /protected example
+   (view "passed"). The server shell (src/gate-page.js) renders the same
+   markup as the first frame, so these rules style both. Type follows the
+   role + px scale (the --text-* tokens are Tailwind theme values, not
+   emitted as variables here): 12 label, 13/14/15/16 copy, 20/24 title,
+   28 page H1, 36 display. */
+
+/* ------------------------------------------------------------ challenge */
+
+/* No card and no surface: one left-aligned column straight on the page, hung
+   from the upper part of it rather than centred, so when it grows (the failed
+   state) it grows downwards and nothing above moves. The footer (in the
+   shell) lines up with the same column, --pv-column. */
+body {
+  --pv-column: 600px;
+}
+
+.pv-gate {
+  flex: 1;
+  padding: clamp(48px, 14vh, 160px) 16px 48px;
+}
+
+/* Top to bottom: the host, what is going on, the status line, then what
+   the check is. */
+.pv-gate__body {
+  width: min(100%, var(--pv-column));
+  margin: 0 auto;
+}
+
+/* The site, as the page's name: display-36. */
+.pv-gate__title {
+  margin: 0;
+  color: var(--color-neutral-10);
+  font-size: 36px;
+  font-weight: 500;
+  line-height: 44px;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+/* One step above the body copy: title-20, at body weight. */
+.pv-gate__subtitle {
+  margin: 12px 0 0;
+  color: var(--color-neutral-9);
+  font-size: 20px;
+  line-height: 28px;
+  text-wrap: pretty;
+}
+
+/* The status line: the mascot is the status mark (her pose is the state),
+   with two lines of text beside her. No frame, no fill. */
+.pv-gate__status,
+.pv-gate__noscript {
+  margin-top: 32px;
+}
+
+.pv-gate__status {
+  --pv-gate-mascot: 128px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+/* The three poses stacked in one square; the art is cut off at the waist,
+   so it fades out at the bottom instead of ending on a hard edge. */
+.pv-gate__mascot {
+  position: relative;
+  flex: none;
+  width: var(--pv-gate-mascot);
+  height: var(--pv-gate-mascot);
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent);
+  mask-image: linear-gradient(to bottom, #000 80%, transparent);
+}
+
+/* The widget's soft-focus swap (widget/src/src/cap.css): the outgoing pose
+   blurs and shrinks away while the incoming one, held back a beat, comes
+   into focus from a slightly larger, blurred frame, so the transparent art
+   never shows as a double image halfway through. */
+.pv-gate__mascot-pose {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  filter: blur(6px);
+  transform: scale(0.96);
+  transition:
+    opacity var(--motion-duration-ripple) var(--motion-ease-standard),
+    filter var(--motion-duration-ripple) var(--motion-ease-standard),
+    transform var(--motion-spring-smooth-duration) var(--motion-spring-smooth);
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.pv-gate__mascot[data-pose="checking"] .pv-gate__mascot-pose[data-pose="checking"],
+.pv-gate__mascot[data-pose="done"] .pv-gate__mascot-pose[data-pose="done"],
+.pv-gate__mascot[data-pose="error"] .pv-gate__mascot-pose[data-pose="error"] {
+  opacity: 1;
+  filter: none;
+  transform: none;
+  transition-delay: var(--motion-duration-state);
+}
+
+/* The text beside her: centred on her while it is two lines, growing
+   downwards from her top once it is more (the failed state). */
+.pv-gate__state {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  min-height: var(--pv-gate-mascot);
+}
+
+.pv-gate__state-text {
+  margin: 0;
+  color: var(--color-neutral-10);
+  font-size: 20px;
+  line-height: 28px;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+/* The real progress after the step: live, quieter, digits that do not
+   jitter. */
+.pv-gate__percent {
+  margin-inline-start: 0.5em;
+  color: var(--color-neutral-7);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-gate__hint {
+  margin: 4px 0 0;
+  color: var(--color-neutral-7);
+  font-size: 16px;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+
+/* Failed: the way out and, for a support request, the code. */
+.pv-gate__error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 16px;
+  animation: pv-gate-enter var(--motion-spring-smooth-duration)
+    var(--motion-spring-smooth) both;
+}
+
+.pv-gate__error-code {
+  margin: 0;
+  color: var(--color-neutral-6);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.pv-gate__error-code code {
+  color: var(--color-neutral-7);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+@keyframes pv-gate-enter {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
+/* The widget does the work out of sight. `data-cap-auto` only starts while
+   the element is laid out, visible and in the viewport, so it stays in the
+   status line, clipped to one transparent pixel, rather than display: none
+   or off-screen. */
+.pv-gate__engine {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pv-gate__noscript {
+  margin-bottom: 0;
+  color: var(--color-neutral-8);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.pv-gate__explain {
+  margin: 32px 0 0;
+  color: var(--color-neutral-7);
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+/* --------------------------------------------------------------- footer */
+
+/* Overrides shared/base.css's .pv-footer for the gate: one meta line at the
+   bottom of the page, under a hairline, left-aligned to the page's column. */
+.pv-gate-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  column-gap: 8px;
+  row-gap: 2px;
+  width: min(100% - 32px, var(--pv-column));
+  margin: 0 auto;
+  padding: 12px 0 20px;
+  border-top: 1px solid var(--color-neutral-3);
+  color: var(--color-neutral-7);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* /protected: its column is .pv-pass's, less the side padding. */
+body[data-gate-view="passed"] {
+  --pv-column: 608px;
+}
+
+.pv-gate-footer__ray {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pv-gate-footer__ray code {
+  color: var(--color-neutral-8);
+  font-size: 12px;
+}
+
+.pv-gate-footer__dot {
+  color: var(--color-neutral-6);
+}
+
+/* The slot the copy button portals into, already its size in the shell. */
+.pv-gate-footer__copy {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+}
+
+.pv-ray-copy.rk-icon-button {
+  padding: 5px;
+  border-color: transparent;
+  color: var(--color-neutral-7);
+}
+
+/* ------------------------------------------------------------ /protected */
+
+.pv-pass-bar__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pv-pass-bar__icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--color-accent);
+}
+
+.pv-pass-bar__host {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pv-pass-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  transition:
+    background-color var(--motion-duration-state) var(--motion-ease-standard),
+    color var(--motion-duration-state) var(--motion-ease-standard);
+}
+
+.pv-pass-badge[data-expired] {
+  background: var(--color-neutral-2);
+  color: var(--color-neutral-7);
+}
+
+.pv-pass-badge__icon {
+  width: 14px;
+  height: 14px;
+}
+
+.pv-pass {
+  flex: 1;
+  width: min(100%, 640px);
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.pv-pass__card {
+  padding: 28px 28px 24px;
+  border-radius: 16px;
+  background: var(--color-neutral-1);
+  box-shadow:
+    inset 0 0 0 1px var(--color-border),
+    var(--shadow-whisper);
+}
+
+.pv-pass__eyebrow {
+  margin: 0 0 6px;
+  color: var(--color-neutral-7);
+  font-size: 12px;
+  line-height: 18px;
+  letter-spacing: 0.04em;
+}
+
+.pv-pass__title {
+  margin: 0;
+  color: var(--color-neutral-10);
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 36px;
+  letter-spacing: -0.01em;
+}
+
+.pv-pass__lede {
+  margin: 10px 0 0;
+  color: var(--color-neutral-8);
+  font-size: 14px;
+  line-height: 22px;
+  text-wrap: pretty;
+}
+
+.pv-pass__timer {
+  margin-top: 24px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: var(--color-neutral-2);
+}
+
+.pv-pass__label {
+  margin: 0;
+  color: var(--color-neutral-7);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.pv-pass__clock {
+  margin: 2px 0 0;
+  color: var(--color-neutral-10);
+  font-family: var(--font-mono);
+  font-size: 36px;
+  font-weight: 500;
+  line-height: 44px;
+  transition: color var(--motion-duration-state) var(--motion-ease-standard);
+}
+
+.pv-pass__timer[data-expired] .pv-pass__clock {
+  color: var(--color-neutral-7);
+}
+
+.pv-pass__expires {
+  margin: 2px 0 0;
+  min-height: 20px;
+  color: var(--color-neutral-7);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.pv-pass__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.pv-pass__step {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--color-neutral-3);
+  color: var(--color-neutral-8);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.pv-pass__how .rk-list-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pv-pass__step-title {
+  color: var(--color-neutral-9);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.pv-pass__step-text {
+  color: var(--color-neutral-7);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+@media (max-width: 480px) {
+  .pv-pass {
+    padding-top: 12px;
+    gap: 28px;
+  }
+
+  .pv-pass__card {
+    padding: 22px 18px 20px;
+  }
+
+  .pv-pass__title {
+    font-size: 24px;
+    line-height: 32px;
+  }
+
+
+  .pv-pass__actions .rk-button {
+    flex: 1;
+  }
+
+  /* The footer wraps to two lines here; the separator would dangle. */
+  .pv-gate-footer__dot {
+    display: none;
+  }
+}
+
+/* Phone: the same column, a smaller heading and mascot. */
+@media (max-width: 560px) {
+  .pv-gate {
+    padding-top: clamp(32px, 8vh, 64px);
+  }
+
+  .pv-gate__title {
+    font-size: 28px;
+    line-height: 36px;
+  }
+
+  .pv-gate__subtitle {
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .pv-gate__status {
+    --pv-gate-mascot: 104px;
+    gap: 16px;
+  }
+}
+
+/* ------------------------------------------------------- reduced motion */
+
+/* No displacement, scaling or blurring: the poses and the failed state
+   still change, as plain fades. */
+@media (prefers-reduced-motion: reduce) {
+  .pv-gate__mascot-pose {
+    filter: none;
+    transform: none;
+    transition: opacity var(--motion-duration-ripple)
+      var(--motion-ease-standard);
+  }
+
+  .pv-gate__error {
+    animation: pv-gate-fade-in var(--motion-duration-enter)
+      var(--motion-ease-standard) both;
+  }
+}
+
+@keyframes pv-gate-fade-in {
+  from {
+    opacity: 0;
+  }
+}

@@ -37,4 +37,11 @@
   --layer-overlay: 50; /* 模态层：Dialog / Sheet 的 backdrop 与 viewport */
   --layer-popup: 55;   /* 锚定浮层：Menu / Select / Popover / Tooltip 的 Positioner */
   --layer-toast: 60;   /* Snackbar：永远在最上，模态开着也要看得见 */
+
+  /* chrome 档的子档：导航栈（NavigationStack）转场期间的三层，按「下层 < 暗层 < 上层 < 栏的克隆（= chrome）」
+     排在 chrome 之下、紧贴着它。只在转场那几百毫秒存在，跟着 chrome 走，不是新的一档
+     （登记在 references/tokens.md，理由见 docs/2026-10-18-navigation-stack.md）。 */
+  --layer-nav-under: calc(var(--layer-chrome) - 3);
+  --layer-nav-scrim: calc(var(--layer-chrome) - 2);
+  --layer-nav-over: calc(var(--layer-chrome) - 1);
 }

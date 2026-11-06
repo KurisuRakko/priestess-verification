@@ -51,6 +51,24 @@
   }
 }
 
+/* 到顶透明：滚动容器不可滚动（页面不够长）时 scroll(nearest) 时间轴无效、动画不生效，材质与发丝线会常显。
+   TopBar 在滚动位置 ≤ 0 或不可滚动时写 data-at-top，这里压回 rk-glass-reveal 的起点。
+   动画的 fill 会压过普通声明，所以先 animation: none。backdrop-filter 取 blur(0px) saturate(100%)
+   而不是 none：层保持常驻、从首帧起已建立，离开顶部时不会冷启动闪一下（见 anti-patterns）。 */
+[data-glass='chrome'][data-reveal='scroll'][data-at-top] {
+  animation: none;
+  background: transparent;
+  box-shadow: 0 1px 0 transparent;
+  backdrop-filter: blur(0px) saturate(100%);
+}
+
+/* 老 WebKit 的前缀写法，同样独立成块（理由见上方前缀块的注释）。 */
+@supports not (backdrop-filter: blur(1px)) {
+  [data-glass='chrome'][data-reveal='scroll'][data-at-top] {
+    -webkit-backdrop-filter: blur(0px) saturate(100%);
+  }
+}
+
 /* 不支持 scroll-driven animation 的浏览器退化为常显。 */
 @supports not (animation-timeline: scroll()) {
   [data-glass='chrome'][data-reveal='scroll'] {

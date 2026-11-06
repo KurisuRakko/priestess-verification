@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * scripts/check-design.mjs —— 展示页的 Rakko Design 合规检查（Node 标准库，零依赖）。
+ * scripts/check-design.mjs —— Worker 页面的 Rakko Design 合规检查（Node 标准库，零依赖）。
  *
  * 检查对象：
- *   worker/src/demo/page.css      展示页自己的样式
- *   worker/src/demo/app.client.js 展示页的浏览器脚本
- *   worker/src/demo-page.js       页面骨架（内联 SVG、style 属性）
+ *   worker/web/src 下的 .css           React 前端（展示页 / 门禁页）自己的样式
+ *   worker/web/src 下的 .ts / .tsx     React 前端源码
+ *   worker/src/demo-page.js、gate-page.js 服务端页面壳（首帧 HTML、style 属性）
  *
  * 规则（注释里的内容不算）：
  *   - CSS（逐条声明）：裸 hex（只有 mask 声明里的 #000 / #fff 例外）、rgb/hsl/hwb/lab/lch/
@@ -17,23 +17,29 @@
  *     规则块里不许有 opacity: 0 / display: none / visibility: hidden（查不到祖先元素上的隐藏）。
  *   - JS：backdrop-filter、SVG 的 fill/stroke 写死颜色（必须 currentColor 或 none）、style 属性里的 hex。
  *   - 零外网：fonts.googleapis、@import url(http。
- *   - 入口：demo-page.js 必须内联 tokens.generated.css、glass.css、state-layer.css，且在页面 CSS 之前。
- *   - vendor 完整性（给了 RAKKO_DESIGN_DIR 时）：vendor/rakko-design/design-system/src/* 与上游逐字节一致、
- *     文件集合一致；tokens.generated.css 的两段与 scaffold 原文一致。
+ *   - 样式入口顺序：worker/web/src/shared/base.css 前两条 @import 必须依次是
+ *     '@rakko/design-system/tokens.css' 与 '@rakko/react/styles.css'；每个入口 main.tsx 第一条 import
+ *     必须是 ../shared/base.css；两个页面壳必须内联 ./generated/<入口>.css。
+ *   - vendor 完整性（给了 RAKKO_DESIGN_DIR 时）：vendor/rakko-design/design-system/src/* 与
+ *     react/src 整棵树（排除 *.test.ts、*.test.tsx、vitest.setup.ts）跟上游逐字节一致、文件集合一致；
+ *     tokens.generated.css 的两段与 scaffold 原文一致。
  *
  * 输出：逐条 `文件:行号: 原因`；有问题 exit 1，否则一行 OK。
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const RAKKO_DIR = process.env.RAKKO_DESIGN_DIR || "";
 const VENDOR = join(ROOT, "vendor/rakko-design");
 
-const PAGE_CSS = join(ROOT, "worker/src/demo/page.css");
-const CLIENT_JS = join(ROOT, "worker/src/demo/app.client.js");
-const PAGE_JS = join(ROOT, "worker/src/demo-page.js");
+const WEB_SRC = join(ROOT, "worker/web/src");
+const BASE_CSS = join(WEB_SRC, "shared/base.css");
+const SHELLS = [
+  { file: join(ROOT, "worker/src/demo-page.js"), entry: "showcase" },
+  { file: join(ROOT, "worker/src/gate-page.js"), entry: "gate" },
+];
 
 const issues = [];
 const rel = (p) => relative(ROOT, p).split("\\").join("/");
@@ -75,6 +81,10 @@ function listFiles(dir, out = []) {
   return out;
 }
 
+const CSS_FILES = listFiles(WEB_SRC).filter((p) => p.endsWith(".css"));
+const SCRIPT_FILES = listFiles(WEB_SRC).filter((p) => /\.tsx?$/.test(p));
+if (CSS_FILES.length === 0) add(WEB_SRC, 1, "web/src 下没有任何 CSS（目录结构变了？）");
+
 // ------------------------------------------------------------------ CSS
 // CSS 颜色名全集（CSS Color 4）；transparent / currentColor 不算写死颜色。
 const NAMED_COLORS = new Set(
@@ -104,7 +114,7 @@ const MASK_HEX = /^#(?:000|fff|000000|ffffff)$/i;
 /** 带 data-glass 的元素的 class / id（页面骨架里写死的那些），用来查「玻璃被藏起来」。 */
 function glassSelectors() {
   const names = new Set();
-  const sources = [read(PAGE_JS), read(CLIENT_JS)];
+  const sources = [...SHELLS.map((s) => read(s.file)), ...SCRIPT_FILES.map(read)];
   for (const text of sources) {
     for (const tag of text.matchAll(/<[a-z][^<>]*data-glass="[^"]+"[^<>]*>/g)) {
       for (const m of tag[0].matchAll(/\b(class|id)="([^"]+)"/g)) {
@@ -117,7 +127,7 @@ function glassSelectors() {
   return [...names];
 }
 
-{
+for (const PAGE_CSS of CSS_FILES) {
   const css = stripComments(read(PAGE_CSS), "css");
 
   // 逐条声明：prop: value
@@ -169,7 +179,7 @@ function glassSelectors() {
 }
 
 // ------------------------------------------------------------------ JS / HTML 骨架
-for (const file of [CLIENT_JS, PAGE_JS]) {
+for (const file of [...SCRIPT_FILES, ...SHELLS.map((s) => s.file)]) {
   const js = stripComments(read(file), "js");
   each(js, /backdrop-filter/g, (_m, line) => add(file, line, "backdrop-filter 只能来自 glass.css（用 data-glass）"));
   each(js, /\b(?:fill|stroke)="(?!currentColor|none)[^"]*"/g, (m, line) => add(file, line, `SVG 颜色写死：${m[0]}（用 currentColor）`));
@@ -186,17 +196,22 @@ for (const file of [CLIENT_JS, PAGE_JS]) {
   }
 }
 
+// ------------------------------------------------------------------ 样式入口
 {
-  const page = read(PAGE_JS);
-  const imports = [
-    "vendor/rakko-design/tokens.generated.css",
-    "vendor/rakko-design/design-system/src/glass.css",
-    "vendor/rakko-design/design-system/src/state-layer.css",
-  ];
-  for (const path of imports) if (!page.includes(path)) add(PAGE_JS, 1, `没有内联 ${path}`);
-  const vendorAt = page.indexOf("<style data-vendor");
-  const pageAt = page.indexOf("<style data-page");
-  if (vendorAt === -1 || pageAt === -1 || vendorAt > pageAt) add(PAGE_JS, 1, "vendor 样式必须在页面样式之前内联");
+  const css = stripComments(read(BASE_CSS), "css");
+  const imports = [...css.matchAll(/@import\s+([^;]+);/g)].map((m) => m[1].trim().replace(/^['"]|['"]$/g, ""));
+  const want = ["@rakko/design-system/tokens.css", "@rakko/react/styles.css"];
+  if (!css.trimStart().startsWith("@import") || imports[0] !== want[0] || imports[1] !== want[1]) {
+    add(BASE_CSS, 1, `样式入口顺序错：前两条 @import 必须依次是 ${want.join(" → ")}（现在是 ${imports.slice(0, 2).join(" → ") || "空"}）`);
+  }
+}
+for (const { file, entry } of SHELLS) {
+  const main = join(WEB_SRC, entry, "main.tsx");
+  const first = stripComments(read(main), "js").match(/import\s+["']([^"']+)["']/)?.[1];
+  if (first !== "../shared/base.css") add(main, 1, `第一条 import 必须是 "../shared/base.css"（现在是 ${first ?? "空"}）`);
+  const page = read(file);
+  if (!page.includes(`./generated/${entry}.css`)) add(file, 1, `没有内联 ./generated/${entry}.css`);
+  if (!page.includes(`./generated/${entry}.client.js`)) add(file, 1, `没有内联 ./generated/${entry}.client.js`);
 }
 
 // ------------------------------------------------------------------ vendor 完整性
@@ -204,15 +219,27 @@ if (!existsSync(join(VENDOR, "tokens.generated.css"))) {
   add(join(VENDOR, "tokens.generated.css"), 1, "缺少 vendor：先跑 scripts/sync-design.sh");
 }
 if (RAKKO_DIR) {
-  const upstream = join(RAKKO_DIR, "design-system/src");
-  const mine = join(VENDOR, "design-system/src");
-  const up = new Set(listFiles(upstream).map((p) => relative(upstream, p)));
-  const have = new Set(listFiles(mine).map((p) => relative(mine, p)));
-  for (const f of up) {
-    if (!have.has(f)) add(join(mine, f), 1, "上游有、vendor 没有");
-    else if (!readFileSync(join(upstream, f)).equals(readFileSync(join(mine, f)))) add(join(mine, f), 1, "与上游不一致（vendor 不许手改）");
+  // @rakko/react 的测试文件不同步（scripts/sync-design.sh 的 copy_tree）。
+  const isTest = (p) => /\.test\.tsx?$/.test(p) || basename(p) === "vitest.setup.ts";
+  for (const [sub, skipTests] of [
+    ["design-system/src", false],
+    ["react/src", true],
+  ]) {
+    const upstream = join(RAKKO_DIR, sub);
+    const mine = join(VENDOR, sub);
+    const up = new Set(
+      listFiles(upstream)
+        .map((p) => relative(upstream, p))
+        .filter((p) => !(skipTests && isTest(p))),
+    );
+    const have = new Set(listFiles(mine).map((p) => relative(mine, p)));
+    if (up.size === 0) add(upstream, 1, "上游目录为空或不存在（RAKKO_DESIGN_DIR 指错了？）");
+    for (const f of up) {
+      if (!have.has(f)) add(join(mine, f), 1, "上游有、vendor 没有");
+      else if (!readFileSync(join(upstream, f)).equals(readFileSync(join(mine, f)))) add(join(mine, f), 1, "与上游不一致（vendor 不许手改）");
+    }
+    for (const f of have) if (!up.has(f)) add(join(mine, f), 1, "vendor 多出的文件（上游没有）");
   }
-  for (const f of have) if (!up.has(f)) add(join(mine, f), 1, "vendor 多出的文件（上游没有）");
 
   const scaffold = readFileSync(join(RAKKO_DIR, "design-system/templates/scaffold.html"), "utf8");
   const first = scaffold.match(/<style[^>]*>([\s\S]*?)<\/style>/)?.[1] ?? "";
@@ -228,4 +255,6 @@ if (issues.length) {
   console.error(`[check-design] ${issues.length} 个问题`);
   process.exit(1);
 }
-console.log(`[check-design] OK（page.css / app.client.js / demo-page.js${RAKKO_DIR ? " + vendor 完整性" : ""}）`);
+console.log(
+  `[check-design] OK（web/src ${CSS_FILES.length} 个 CSS / ${SCRIPT_FILES.length} 个 TS(X) + 页面壳${RAKKO_DIR ? " + vendor 完整性" : ""}）`,
+);

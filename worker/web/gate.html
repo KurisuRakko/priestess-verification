@@ -1,0 +1,30 @@
+<!doctype html>
+<!-- `npm run dev:web` only: the gate page with hot reload. The real pages are
+     rendered by src/gate-page.js; this mirrors the shell with a fixed config
+     (set "view" to "passed" and add "expiresAt" for the /protected example).
+     The widget and /__gate/ are proxied to `npm run dev` (8787). -->
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gate (dev)</title>
+  </head>
+  <body data-gate-view="challenge">
+    <div id="root"></div>
+    <footer class="pv-footer pv-gate-footer">
+      <span class="pv-gate-footer__ray">Session ID: <code>0000000000000000</code><span class="pv-gate-footer__copy" id="gate-ray-copy"></span></span>
+      <span class="pv-gate-footer__dot" aria-hidden="true">·</span>
+      <span>Powered by <a href="https://github.com/KurisuRakko/priestess-verification" rel="noopener">Priestess Verification</a></span>
+    </footer>
+    <script type="application/json" id="page-config">
+      { "view": "challenge", "host": "localhost", "ray": "0000000000000000", "lang": "en", "endpoint": "/__gate/", "passTtlS": 1800 }
+    </script>
+    <script>
+      window.CAP_CUSTOM_WASM_URL = "/__gate/cap_wasm_bg.wasm";
+      window.CAP_CUSTOM_HASHWX_URL = "/__gate/hashwx.wasm";
+      window.CAP_PAKO_URL = "/__gate/pako_inflate.min.js";
+    </script>
+    <script src="/__gate/widget.js"></script>
+    <script type="module" src="/src/gate/main.tsx"></script>
+  </body>
+</html>

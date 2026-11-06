@@ -1,6 +1,7 @@
 /* 上下文操作手势（长按 / 右键）。
    一个入口覆盖两种输入设备：触摸长按与鼠标右键都归一成同一次 onOpen(surface, anchor)，
-   消费方只写一遍业务逻辑，再按视口自行决定呈现（移动端升起 Sheet、桌面在锚点开 Menu）。
+   消费方只写一遍业务逻辑，再决定呈现：默认在按点开锚点 Menu（React 用 @rakko/react 的 LiftMenu），
+   需要输入或操作项很多时改升 Sheet（2026-10-18 修订，见 docs/2026-10-18-list-motion.md）。
    设备判定不读事件形状：Pointer Events L3 里键盘触发的 contextmenu pointerType 是空串，
    Firefox/Safari 的 contextmenu 是 MouseEvent 根本没有 pointerType，按它分类必然出错。
    模块只信自己的追踪状态——只有被追踪的触摸才震动、才写去重记录，其余路径一律当鼠标走。
@@ -56,6 +57,17 @@ const defaultEnvironment = {
 /** 长按不参与的目标：行内可交互元素与显式标注忽略的区域。 */
 export function isContextActionIgnoredTarget(target) {
   return Boolean(target?.closest?.(IGNORE_SELECTOR))
+}
+
+/* 表面自身就落在忽略集合里（行本身是 <button>、可拖拽的行带 draggable='true'）时，
+   长按照旧不参与（按钮与拖拽保留自己的触摸行为），右键却不该落空：没有别的可交互元素
+   挡在中间——从目标往上最近的忽略元素正是表面自身——且表面以上也不在忽略区时，
+   contextmenu 仍按这个表面打开。 */
+function isSelfIgnoredSurface(target, surface) {
+  return (
+    target?.closest?.(IGNORE_SELECTOR) === surface &&
+    !isContextActionIgnoredTarget(surface.parentElement)
+  )
 }
 
 function findSurface(target, root) {
@@ -186,10 +198,9 @@ export function installContextAction(options) {
   }
 
   const onContextMenu = (event) => {
-    if (isContextActionIgnoredTarget(event.target)) return
-
     const found = findSurface(event.target, root)
     if (!found) return
+    if (isContextActionIgnoredTarget(event.target) && !isSelfIgnoredSurface(event.target, found)) return
 
     /* 无论哪条路径、是否被去重，原生菜单都不出现——呈现由消费方接管。 */
     event.preventDefault()
