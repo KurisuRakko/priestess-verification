@@ -38,6 +38,7 @@ import {
   protocolNote,
   siteBody,
   siteForm,
+  siteFormError,
   snippets,
 } from "../web/src/admin/sites.ts";
 import {
@@ -542,6 +543,19 @@ describe("admin console sites", () => {
         DEFAULTS,
       ).settings,
     ).toEqual({ blockAutomatedBrowsers: null });
+  });
+
+  it("rejects a token lifetime that is not a number in range, keeping empty as the default", () => {
+    const form = siteForm(null, DEFAULTS);
+    for (const value of ["", "  ", "20", "0.25", "1440", "5."]) {
+      expect(siteFormError({ ...form, tokenTtlMinutes: value }), value).toBeNull();
+    }
+    for (const value of ["abc", "1e3", "-5", "0", "0.001", "1441", "1,5"]) {
+      expect(siteFormError({ ...form, tokenTtlMinutes: value }), value).toEqual({
+        field: "tokenTtlMinutes",
+        text: expect.stringContaining("留空表示沿用全局默认值"),
+      });
+    }
   });
 
   it("describes settings for the protocol in effect", () => {

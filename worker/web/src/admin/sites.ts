@@ -125,13 +125,37 @@ export function siteForm(site: Site | null, defaults?: SiteDefaults): SiteForm {
   };
 }
 
+const TTL_MS_RANGE = [1000, 24 * 60 * 60 * 1000] as const;
+
+/**
+ * The client-side check before saving: a token lifetime that is not a number
+ * in range is an error under its field, not a cleared override. Only an empty
+ * field means "use the global default". The range is `SITE_SETTING_RANGES`
+ * in config.js.
+ */
+export function siteFormError(
+  form: SiteForm,
+): { field: "tokenTtlMinutes"; text: string } | null {
+  const minutes = form.tokenTtlMinutes.trim();
+  if (!minutes) return null;
+  const ms = Math.round(Number(minutes) * 60000);
+  if (/^\d*\.?\d+$|^\d+\.$/.test(minutes) && ms >= TTL_MS_RANGE[0] && ms <= TTL_MS_RANGE[1]) {
+    return null;
+  }
+  return {
+    field: "tokenTtlMinutes",
+    text: "token 有效期须为介于 1 秒与 1440 分钟之间的数值（单位：分钟）；留空表示沿用全局默认值。",
+  };
+}
+
 /**
  * The POST / PATCH body. `settings` starts from the site's stored settings,
  * and only the fields the admin changed (against `siteForm(site)`) replace
  * them: a setting the form hides or leaves alone is sent back unchanged, even
  * one the form cannot show exactly (a sub-minute token lifetime). A cleared
  * field is `null` (use the global default), and so is the checkbox when it
- * matches the global default. Origins split on any whitespace.
+ * matches the global default. Origins split on any whitespace. Check the
+ * form with `siteFormError` first.
  */
 export function siteBody(
   form: SiteForm,

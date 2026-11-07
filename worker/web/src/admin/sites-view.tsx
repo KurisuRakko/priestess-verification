@@ -24,6 +24,7 @@ import {
   protocolNote,
   secretWarning,
   siteBody,
+  siteFormError,
   siteForm,
   snippets,
 } from "./sites";
@@ -161,6 +162,13 @@ function SiteDialog({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    const formError = siteFormError(form);
+    if (formError) {
+      setError("");
+      setAdvanced(true);
+      setInvalid(formError);
+      return;
+    }
     const body = siteBody(form, site, defaults ?? undefined);
     setBusy(true);
     try {
@@ -294,8 +302,8 @@ function SiteDialog({
                   <Field.Label>token 有效期（分钟）</Field.Label>
                   <Field.Control
                     ref={controls.tokenTtlMinutes}
-                    type="number"
-                    step="any"
+                    inputMode="decimal"
+                    autoComplete="off"
                     placeholder={
                       defaults ? minutesText(defaults.tokenTtlMs) : undefined
                     }
