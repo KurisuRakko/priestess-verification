@@ -28,6 +28,8 @@
 @import './popover/popover.css';
 @import './progress/progress.css';
 @import './progress-ring/progress-ring.css';
+/* BarChart 的提示框叠在 tooltip.css 之上（选择器 .rk-tooltip.rk-bar-chart__tooltip 自锁） */
+@import './bar-chart/bar-chart.css';
 @import './snackbar/snackbar.css';
 @import './field/field.css';
 @import './copy-button/copy-button.css';
@@ -39,6 +41,8 @@
    swipe-row.css 只管滑动层与操作区，两者选择器互不覆盖，顺序不敏感。 */
 @import './list/list.css';
 @import './swipe-row/swipe-row.css';
+/* 表格：语义化 <table> + 横向滚动容器，layout="stack" 时窄屏每行变卡片；选择器都以 .rk-table 开头，与列表互不覆盖 */
+@import './table/table.css';
 @import './search-field/search-field.css';
 @import './avatar/avatar.css';
 @import './skeleton/skeleton.css';

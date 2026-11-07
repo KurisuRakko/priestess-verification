@@ -1,0 +1,244 @@
+/* rk-table：语义化 <table> 外包一层横向滚动容器。容器是内容容器档（8px 圆角 + 1px 描边），
+   行间 1px 分隔线，表头小号次要色，分组行 neutral-2 淡底；行默认不可点、无悬停高亮。
+   layout="stack" 且容器窄于 stackBelow 时，Root 挂 data-stacked：行变成「字段名 — 值」卡片，表头视觉隐藏。
+   颜色、圆角、分隔线全部来自 token；浅深两主题靠 token 自身切换，本文件不写主题分支。
+   本文件没有过渡与动画，不需要 reduced-motion 回退。 */
+
+.rk-table {
+  /* 底色默认透明（随所在表面），调用方可在 Root 或更外层覆盖 */
+  position: relative;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-container);
+  /* 同心：贴着描边的内容按 max(8 − 1, 2) = 7 推导（单元格里的圆角元素若要贴边可取用） */
+  --rk-radius-outer: var(--radius-container);
+  --rk-radius-inset: 1px;
+  background: var(--rk-table-bg, transparent);
+  color: var(--color-neutral-9);
+  font-size: var(--text-copy-14);
+  line-height: var(--text-copy-14--line-height);
+}
+
+/* 溢出时容器可聚焦（键盘左右滚动）：焦点环内描，免得被外层 overflow 裁掉 */
+.rk-table:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  outline-offset: -2px;
+}
+
+.rk-table__table {
+  /* scroll 布局：表格按内容的自然宽度排（至少撑满容器），放不下时由外层容器横向滚动，
+     而不是把列挤到逐字换行（按钮、标签被挤成两行）。需要换行的长文本列给单元格内容设 max-width。 */
+  width: max-content;
+  min-width: 100%;
+  /* separate + 0 间距：分隔线逐格画在 border-bottom 上，不受 collapse 合并规则干扰 */
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.rk-table__caption {
+  box-sizing: border-box;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  caption-side: top;
+  text-align: start;
+  font-size: var(--text-copy-14);
+  line-height: var(--text-copy-14--line-height);
+  font-weight: 500;
+  color: var(--color-neutral-9);
+}
+
+/* captionHidden：只给读屏 */
+.rk-table__caption[data-hidden] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ 单元格 */
+
+.rk-table__header-cell,
+.rk-table__cell,
+.rk-table__group-cell {
+  box-sizing: border-box;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: start;
+  vertical-align: middle;
+}
+
+.rk-table__header .rk-table__header-cell {
+  padding-block: 10px;
+  font-size: var(--text-copy-13);
+  line-height: var(--text-copy-13--line-height);
+  font-weight: 500;
+  color: var(--color-neutral-7);
+  white-space: nowrap;
+}
+
+/* Body / Footer 里的行标题：与正文同字号，略加字重 */
+.rk-table__body .rk-table__header-cell,
+.rk-table__footer .rk-table__header-cell {
+  font-weight: 500;
+  color: var(--color-neutral-10);
+}
+
+.rk-table__group-cell {
+  padding-block: 6px;
+  background: var(--color-neutral-2);
+  font-size: var(--text-copy-13);
+  line-height: var(--text-copy-13--line-height);
+  font-weight: 500;
+  color: var(--color-neutral-8);
+}
+
+.rk-table__footer .rk-table__cell,
+.rk-table__footer .rk-table__header-cell {
+  font-weight: 500;
+}
+
+/* 整张表最后一行不画底线：容器描边已经收边（Body 与 Footer 之间的分界由 Body 末行的底线承担） */
+.rk-table__table > :last-child > tr:last-child > * {
+  border-bottom: 0;
+}
+
+.rk-table [data-align='start'] {
+  text-align: start;
+}
+
+.rk-table [data-align='center'] {
+  text-align: center;
+}
+
+.rk-table [data-align='end'] {
+  text-align: end;
+}
+
+.rk-table [data-numeric] {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* stack 布局才显示的字段名 */
+.rk-table__label {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ 密度 */
+
+.rk-table[data-density='compact'] .rk-table__header-cell,
+.rk-table[data-density='compact'] .rk-table__cell {
+  padding: 6px 12px;
+}
+
+.rk-table[data-density='compact'] .rk-table__header .rk-table__header-cell {
+  padding-block: 6px;
+}
+
+.rk-table[data-density='compact'] .rk-table__group-cell {
+  padding: 4px 12px;
+}
+
+/* ------------------------------------------------------------------ stack 布局 */
+
+/* 表格结构全部改成块：语义由 table.tsx 补的显式 ARIA 角色（table / rowgroup / row / cell）保住 */
+.rk-table[data-stacked] {
+  overflow-x: visible;
+}
+
+.rk-table[data-stacked] .rk-table__table {
+  width: auto;
+  min-width: 0;
+}
+
+.rk-table[data-stacked] .rk-table__table,
+.rk-table[data-stacked] .rk-table__body,
+.rk-table[data-stacked] .rk-table__footer,
+.rk-table[data-stacked] .rk-table__row,
+.rk-table[data-stacked] .rk-table__group-row,
+.rk-table[data-stacked] .rk-table__header-cell,
+.rk-table[data-stacked] .rk-table__cell,
+.rk-table[data-stacked] .rk-table__group-cell,
+.rk-table[data-stacked] .rk-table__caption:not([data-hidden]) {
+  display: block;
+}
+
+/* 表头只给读屏：每张卡片已经用 label 写出字段名 */
+.rk-table[data-stacked] .rk-table__header {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* 一行 = 一张卡片：上下 8px 留白，卡片之间一道分隔线 */
+.rk-table[data-stacked] .rk-table__row {
+  padding-block: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.rk-table[data-stacked] .rk-table__table > :last-child > .rk-table__row:last-child {
+  border-bottom: 0;
+}
+
+.rk-table[data-stacked] .rk-table__row > * {
+  padding: 4px 16px;
+  border: 0;
+}
+
+/* 有字段名的单元格：字段名靠行首、值靠行尾；值过长时换行，不撑出横向滚动 */
+.rk-table[data-stacked] .rk-table__cell[data-labelled] {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: end;
+}
+
+.rk-table[data-stacked] .rk-table__label {
+  display: block;
+  flex: none;
+  max-width: 45%;
+  font-size: var(--text-copy-13);
+  line-height: var(--text-copy-14--line-height);
+  font-weight: 400;
+  color: var(--color-neutral-7);
+  text-align: start;
+}
+
+.rk-table[data-stacked] .rk-table__value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rk-table[data-stacked] .rk-table__cell[data-numeric] {
+  white-space: normal;
+}
+
+/* 行标题（Body 里的 HeaderCell）成为卡片标题 */
+.rk-table[data-stacked] .rk-table__body .rk-table__header-cell {
+  padding-bottom: 6px;
+  text-align: start;
+}
+
+.rk-table[data-stacked][data-density='compact'] .rk-table__row {
+  padding-block: 4px;
+}
+
+.rk-table[data-stacked][data-density='compact'] .rk-table__row > * {
+  padding: 2px 12px;
+}
+
+/* 空单元格（合计行里的占位格这类）在卡片里不占一行留白 */
+.rk-table[data-stacked] .rk-table__cell:empty {
+  display: none;
+}

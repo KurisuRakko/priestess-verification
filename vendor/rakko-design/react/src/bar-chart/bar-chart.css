@@ -1,0 +1,168 @@
+/* rk-bar-chart：纯 SVG 柱状图。柱色由 tone 映射到语义 token（写在 bar-chart.tsx 的
+   BAR_CHART_TONE_COLOR，柱子、图例与提示框色块共用），这里只管轴、网格、状态层与提示框排版。
+   网格线取 --color-border（与卡片描边同档），基线取 n-5（描边档），轴标签 11px n-7（次要文字档）。
+   提示框复用 rk-tooltip 的外观与 Base UI Tooltip 的定位（--layer-popup），本文件只补多行布局。 */
+
+.rk-bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  color: var(--color-neutral-9);
+}
+
+.rk-bar-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-neutral-7);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.rk-bar-chart__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rk-bar-chart__swatch {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-2);
+}
+
+.rk-bar-chart__plot {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  /* 兜底：测宽滞后一帧（容器刚缩窄、ResizeObserver 尚未回调）时裁掉多出的 SVG，不撑出横向滚动 */
+  overflow: hidden;
+}
+
+.rk-bar-chart__svg {
+  /* 脱离文档流：像素宽度只跟随容器，不反过来撑宽容器（见 bar-chart.tsx） */
+  position: absolute;
+  inset: 0 auto auto 0;
+  display: block;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rk-bar-chart__gridline {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.rk-bar-chart__baseline {
+  stroke: var(--color-neutral-5);
+  stroke-width: 1;
+}
+
+.rk-bar-chart__tick {
+  fill: var(--color-neutral-7);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+/* 当前桶的列底色：沿用状态层的前景色与透明度档（悬停 4%，键盘聚焦 8%） */
+.rk-bar-chart__band {
+  fill: var(--color-neutral-10);
+  opacity: 0;
+  transition: opacity var(--motion-duration-state) var(--motion-ease-standard);
+}
+
+.rk-bar-chart__bucket[data-active] .rk-bar-chart__band {
+  opacity: var(--state-hover-opacity);
+}
+
+.rk-bar-chart__bucket {
+  outline: none;
+}
+
+.rk-bar-chart__bucket:focus-visible .rk-bar-chart__band {
+  opacity: var(--state-focus-opacity);
+}
+
+/* 键盘焦点环：与 state-layer 的焦点环同色（accent 45%），画在列内侧 */
+.rk-bar-chart__focus {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  stroke-width: 2;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.rk-bar-chart__bucket:focus-visible .rk-bar-chart__focus {
+  opacity: 1;
+}
+
+.rk-bar-chart__anchor,
+.rk-bar-chart__hit {
+  fill: transparent;
+}
+
+.rk-bar-chart__anchor {
+  pointer-events: none;
+}
+
+/* 提示框：在 rk-tooltip 上放宽限宽并改为多行键值布局；不接收指针，不挡住下面的桶 */
+.rk-tooltip.rk-bar-chart__tooltip {
+  max-width: min(240px, calc(100vw - 16px));
+  padding: 6px 10px;
+  pointer-events: none;
+}
+
+.rk-bar-chart__tooltip-title {
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.rk-bar-chart__tooltip-rows {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.rk-bar-chart__tooltip-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.rk-bar-chart__tooltip-row dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rk-bar-chart__tooltip-row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 附加行（tooltipExtra）与系列行之间一道细分隔线 */
+.rk-bar-chart__tooltip-row[data-extra] {
+  padding-top: 2px;
+  border-top: 1px solid color-mix(in srgb, var(--color-neutral-1) 20%, transparent);
+}
+
+.rk-bar-chart__tooltip-row[data-extra] ~ .rk-bar-chart__tooltip-row[data-extra] {
+  padding-top: 0;
+  border-top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rk-bar-chart__band {
+    transition-duration: 1ms;
+  }
+}

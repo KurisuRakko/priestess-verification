@@ -116,12 +116,16 @@
   resize: vertical;
 }
 
+/* Description 渲染为 <p>（Error 默认是 <div>，也可能经 render 换成 <p>）：显式清零 margin，
+   与 Label、输入框之间的距离只由 .rk-field 的 gap 决定，不依赖消费方是否引入全局 reset。 */
 .rk-field__description {
+  margin: 0;
   font-size: 13px;
   color: var(--color-neutral-7);
 }
 
 .rk-field__error {
+  margin: 0;
   font-size: 13px;
   color: var(--color-error);
 }

@@ -113,6 +113,13 @@
   border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
 }
 
+/* 经 render 渲染成 <a> 时保持按钮外观：去掉链接下划线。:any-link 同时命中已访问链接，专指度 (0,2,0)
+   高于消费方常见的 a:hover / a:visited 下划线规则；文字颜色由各变体显式设置，浏览器默认链接色不生效。 */
+.rk-button:any-link,
+.rk-icon-button:any-link {
+  text-decoration: none;
+}
+
 /* Icon Button：移植 .icon-btn（方形、克制）；圆角走控件档（6px），与 Button 一致；plain 的圆形图标按钮见下方 --plain。 */
 .rk-icon-button {
   display: inline-flex;

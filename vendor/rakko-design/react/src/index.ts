@@ -84,6 +84,14 @@ export type {
 } from './progress/progress.js'
 export { ProgressRing } from './progress-ring/progress-ring.js'
 export type { ProgressRingProps } from './progress-ring/progress-ring.js'
+export { BAR_CHART_TONE_COLOR, BarChart } from './bar-chart/bar-chart.js'
+export type {
+  BarChartDatum,
+  BarChartExtraItem,
+  BarChartProps,
+  BarChartSeries,
+  BarChartTone,
+} from './bar-chart/bar-chart.js'
 export { Snackbar, useSnackbar } from './snackbar/snackbar.js'
 export type {
   SnackbarActionProps,
@@ -142,6 +150,18 @@ export type {
 } from './side-nav/side-nav.js'
 export { List } from './list/list.js'
 export type { ListGroupProps, ListRowProps } from './list/list.js'
+export { Table } from './table/table.js'
+export type {
+  TableAlign,
+  TableCellProps,
+  TableDensity,
+  TableGroupRowProps,
+  TableHeaderCellProps,
+  TableLayout,
+  TableRootProps,
+  TableRowProps,
+  TableSectionProps,
+} from './table/table.js'
 export { SwipeRow, closeSwipeRows, SWIPE_ACTION_WIDTH } from './swipe-row/swipe-row.js'
 export type {
   SwipeAction,
