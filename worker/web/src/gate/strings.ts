@@ -47,6 +47,10 @@ const zh = {
       label: "浏览器环境检测未通过",
       hint: "请停用可能修改网页脚本的扩展程序，或改用最新版本的 Chrome、Edge、Firefox 或 Safari 后重新验证。",
     },
+    unsupported: {
+      label: "当前浏览器无法完成验证",
+      hint: "当前浏览器不支持或已禁用 WebAssembly（例如开启了 iOS 或 macOS 的锁定模式），无法完成验证。请关闭锁定模式或更换浏览器后重试。",
+    },
     expired: {
       label: "验证结果已失效",
       hint: "本次验证已过期或已被使用，请重新验证。",
@@ -146,6 +150,10 @@ const en: typeof zh = {
     env_blocked: {
       label: "The browser environment check did not pass",
       hint: "Disable extensions that modify page scripts, or use the latest version of Chrome, Edge, Firefox or Safari, then verify again.",
+    },
+    unsupported: {
+      label: "This browser cannot complete verification",
+      hint: "This browser does not support WebAssembly or has it disabled (for example, when Lockdown Mode is turned on in iOS or macOS), so verification cannot be completed. Turn off Lockdown Mode or use a different browser, then try again.",
     },
     expired: {
       label: "The verification result is no longer valid",

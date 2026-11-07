@@ -186,6 +186,22 @@ The defaults, `HASHWX_DIFFICULTY` 150000 and `HASHWX_CHALLENGE_COUNT` 8, were ca
 
 To adjust the workload, change `HASHWX_DIFFICULTY` (1 to 1000000000) in `wrangler.jsonc` and redeploy; a registered site can override it in the console (高级设置, HashWX 难度). Double the value to double the expected solving time. `CHALLENGE_COUNT`, `CHALLENGE_SIZE` and `CHALLENGE_DIFFICULTY` only apply to SHA-256 challenges (format 1 or `sha256-pow`) and have no effect while the protocol is HashWX; the console hides these settings accordingly and marks stored overrides as not in effect.
 
+#### Browsers without WebAssembly
+
+HashWX has no JavaScript fallback: a browser that does not support WebAssembly, or has it disabled, cannot pass verification. This includes Safari with Lockdown Mode turned on in iOS or macOS; on some versions, adding the site as a Lockdown Mode exception does not restore WebAssembly (WebKit bug 273824). The widget then fails with `challenge_unsupported` ("hashwx requires WebAssembly"), and the gate page shows a dedicated failure message asking the visitor to turn off Lockdown Mode or use a different browser. A hashwx.wasm that fails to load or compile is reported the same way. There is deliberately no SHA-256 fallback for these browsers: an attacker would always choose the weaker path, which would remove the GPU resistance HashWX provides.
+
+#### Content Security Policy for embedders
+
+A page that embeds the widget under a Content Security Policy must allow the following, where `https://verify.rakko.cn` stands for this service's origin (the gate page's own policy, `contentSecurityPolicy` in `worker/src/gate.js`, is the reference):
+
+- `script-src https://verify.rakko.cn 'wasm-unsafe-eval'`: `widget.js` and, on browsers without `DecompressionStream`, `pako_inflate.min.js` are loaded as scripts from the service; `'wasm-unsafe-eval'` permits `WebAssembly.compile`. The environment check runs one inline script in a sandboxed `srcdoc` iframe that inherits the page's policy and calls `eval`, so it also needs `'unsafe-eval'` and either `'unsafe-inline'` or a nonce passed through `window.CAP_SCRIPT_NONCE`.
+- `connect-src https://verify.rakko.cn`: `cap_wasm_bg.wasm` and `hashwx.wasm` are downloaded with `fetch`, as are the `/challenge` and `/redeem` calls.
+- `worker-src blob:`: the solver runs in a Web Worker created from a `blob:` URL.
+- `img-src https://verify.rakko.cn`: the mascot images load from `mascot/` next to `widget.js`.
+- `style-src 'unsafe-inline'`, or a nonce passed through `window.CAP_CSS_NONCE`: the widget's shadow-DOM styles are inline.
+
+Without the `window.CAP_CUSTOM_*` overrides above, the wasm and pako URLs point at `https://cdn.jsdelivr.net` and that origin must be allowed instead.
+
 ### Adaptive difficulty
 
 Every challenge entry point (`/challenge`, `/demo/challenge`, `/<siteKey>/challenge` and `/__gate/challenge`) assesses the request before any Durable Object is called and raises the workload when one of the following signals applies:

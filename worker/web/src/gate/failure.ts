@@ -10,10 +10,12 @@
  *  - the `/__gate/pass` response: status and JSON body.
  * Matching is on those exact texts (widget/src/src/cap.js, handlers.js
  * `redeemFailure`, siteverify.js, the 429 body); anything else is `unknown`.
+ * The first matching pattern wins, so their order matters.
  */
 export const FAILURE_KINDS = [
   "rate_limited",
   "env_blocked",
+  "unsupported",
   "expired",
   "network",
   "unknown",
@@ -30,6 +32,15 @@ const PATTERNS: [FailureKind, RegExp][] = [
     "env_blocked",
     /^instrumentation (blocked|timed out|timeout)|blocked by instrumentation/i,
   ],
+  // The widget's `challenge_unsupported` texts ("hashwx requires
+  // WebAssembly", "unsupported format-2 protocol '…'", "malformed hashwx
+  // challenge payload"), and a hashwx.wasm that would not load or compile
+  // ("Failed to fetch hashwx wasm: 404", WebAssembly CompileError texts).
+  // Before `network`: the wasm fetch error also starts with "Failed to fetch".
+  [
+    "unsupported",
+    /requires webassembly|unsupported format-2 protocol|malformed hashwx|hashwx wasm|webassembly|compileerror/i,
+  ],
   // Redeem: "Challenge expired" / "Challenge already redeemed"; pass:
   // "Token expired" / "Token not found".
   [
@@ -37,7 +48,7 @@ const PATTERNS: [FailureKind, RegExp][] = [
     /^challenge (expired|already redeemed)$|^token (expired|not found)$/i,
   ],
   // fetch() rejections (Chromium, Firefox, Safari, React Native polyfills),
-  // a response that is not the service's JSON, a wasm that did not load.
+  // a response that is not the service's JSON.
   [
     "network",
     /failed to fetch|networkerror|load failed|network request failed|failed to parse|unable to solve challenge/i,
