@@ -11,6 +11,7 @@ import {
 import type { Lang } from "../shared/i18n";
 import { useLang } from "../shared/i18n";
 import { usePageConfig } from "../shared/page-config";
+import { useThemeToggle } from "../shared/theme";
 import type { ShowcaseConfig } from "./config";
 import {
   ArrowDownIcon,
@@ -22,7 +23,6 @@ import {
 import { Playground } from "./playground";
 import type { ShowcaseStrings } from "./strings";
 import { STRINGS } from "./strings";
-import { useThemeToggle } from "./theme";
 
 const GATE_DEMO = "/protected";
 const PLAYGROUND_ID = "try";

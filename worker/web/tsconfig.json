@@ -33,5 +33,7 @@
     },
     "typeRoots": ["../node_modules/@types"]
   },
-  "include": ["src", "../../vendor/rakko-design/react/src"]
+  "include": ["src", "../../vendor/rakko-design/react/src"],
+  // Waits for Rakko Design's Table and BarChart (see the file's header).
+  "exclude": ["src/admin/stats-tables.tsx"]
 }

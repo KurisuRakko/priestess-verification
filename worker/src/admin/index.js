@@ -1,14 +1,9 @@
 /**
  * `/admin` router.
  *
- *   GET  /admin                 console page (sign-in panel or site list)
+ *   GET  /admin                 console page (sign-in panel or the console)
  *   GET  /admin/login           start the Priestess sign-in (302)
  *   GET  /admin/callback        Priestess return page (posts the login code)
- *   GET  /admin/design/ripple.js, /admin/design/ripple-geometry.js
- *                               Rakko Design's ripple modules, byte for byte
- *                               from the vendor copy (`ripple.js` imports
- *                               `./ripple-geometry.js`); the showcase bundles
- *                               its own, so only the console serves them
  *   POST /admin/api/session     finish sign-in        (no session needed)
  *   POST /admin/api/logout
  *   GET  /admin/api/me          current admin          (session)
@@ -25,8 +20,6 @@
  */
 
 import { randomBytes } from "node:crypto";
-import rippleJs from "../../../vendor/rakko-design/design-system/src/ripple.js";
-import rippleGeometryJs from "../../../vendor/rakko-design/design-system/src/ripple-geometry.js";
 import { readAdminConfig } from "../config.js";
 import { isSameOriginRequest } from "../handlers.js";
 import { handleSitesApi } from "./api.js";
@@ -49,7 +42,8 @@ function securityHeaders(nonce) {
       "default-src 'none'",
       `script-src ${scriptSrc}`,
       `style-src ${styleSrc}`,
-      // The ripple runtime positions its ink with inline style attributes.
+      // The ripple runtime and the primitives position things with inline
+      // style attributes.
       "style-src-attr 'unsafe-inline'",
       "img-src 'self' data:",
       "connect-src 'self'",
@@ -94,12 +88,6 @@ function isJsonRequest(request) {
     .startsWith("application/json");
 }
 
-const RIPPLE_PATH = "/admin/design/ripple.js";
-const DESIGN_MODULES = new Map([
-  [RIPPLE_PATH, rippleJs],
-  ["/admin/design/ripple-geometry.js", rippleGeometryJs],
-]);
-
 export function isAdminPath(pathname) {
   return pathname === "/admin" || pathname.startsWith("/admin/");
 }
@@ -113,19 +101,7 @@ export async function handleAdmin(request, env, config, url) {
     if (method !== "GET")
       return withHeaders(json({ error: "method not allowed" }, 405));
     const nonce = randomBytes(16).toString("base64");
-    return withHeaders(
-      html(renderAdminPage({ nonce, ripple: RIPPLE_PATH })),
-      nonce,
-    );
-  }
-
-  if (DESIGN_MODULES.has(pathname) && method === "GET") {
-    return withHeaders(
-      new Response(DESIGN_MODULES.get(pathname), {
-        status: 200,
-        headers: { "Content-Type": "application/javascript; charset=utf-8" },
-      }),
-    );
+    return withHeaders(html(renderAdminPage({ nonce })), nonce);
   }
 
   if (pathname === "/admin/callback" && method === "GET") {

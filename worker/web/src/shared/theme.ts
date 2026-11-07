@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { storageGet, storageSet } from "../shared/i18n";
+import { storageGet, storageSet } from "./i18n";
 
 /**
- * Light / dark on `<html data-theme>`. The shell's boot script (demo-page.js)
+ * Light / dark on `<html data-theme>`. The shell's boot script (demo-page.js, admin/page.js)
  * sets it before the first frame from `pv-theme` in localStorage, else the OS
  * preference; this hook keeps following the OS until the visitor picks one.
  */

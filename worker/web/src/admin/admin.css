@@ -1,0 +1,622 @@
+/* The admin console (/admin, /admin/callback). Layout only: every control is
+   a Rakko Design primitive with its own styling; classes here are pv-
+   prefixed and take colours, fonts, radii and durations from tokens. */
+
+/* ------------------------------------------------------------ top bar */
+
+.pv-bar {
+  padding: 0 32px;
+}
+
+.pv-bar__inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 1080px;
+  min-width: 0;
+  margin: 0 auto;
+}
+
+.pv-bar__brand {
+  min-width: 0;
+}
+
+.pv-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--color-neutral-9);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.pv-brand > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pv-brand__mark {
+  display: inline-flex;
+  color: var(--color-accent);
+}
+
+.pv-brand__sub {
+  color: var(--color-neutral-7);
+  font-weight: 400;
+}
+
+.pv-bar .rk-top-bar__actions {
+  gap: 8px;
+}
+
+.pv-bar__user {
+  max-width: 14em;
+  overflow: hidden;
+  color: var(--color-neutral-7);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ page */
+
+.pv-main {
+  flex: 1;
+  width: min(100% - 64px, 1080px);
+  margin: 0 auto;
+  padding: 24px 0 64px;
+}
+
+.pv-loading {
+  max-width: 480px;
+  margin-top: 32px;
+}
+
+.pv-login {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  max-width: 440px;
+  margin: 12vh auto 0;
+  padding: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-container);
+  background: var(--color-neutral-2);
+}
+
+.pv-login__title {
+  margin: 0;
+  color: var(--color-neutral-10);
+  font-size: var(--text-title-24);
+  line-height: var(--text-title-24--line-height);
+  font-weight: 500;
+}
+
+.pv-login__lede {
+  margin: 0 0 8px;
+  color: var(--color-neutral-7);
+}
+
+.pv-tabs__list {
+  max-width: 420px;
+  margin-bottom: 24px;
+}
+
+/* Every panel stays mounted (keepMounted) so each keeps its filters. */
+.pv-view:not([hidden]) {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.pv-main a.rk-button {
+  text-decoration: none;
+}
+
+.pv-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pv-head__text {
+  min-width: 0;
+}
+
+.pv-head__title {
+  margin: 0;
+  color: var(--color-neutral-10);
+  font-size: var(--text-title-24);
+  line-height: var(--text-title-24--line-height);
+  font-weight: 500;
+}
+
+.pv-head__lede {
+  margin: 4px 0 0;
+  color: var(--color-neutral-7);
+  font-size: 14px;
+}
+
+.pv-notice {
+  margin: 0;
+  color: var(--color-error);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.pv-empty {
+  margin: 8px 0;
+  padding: 32px 16px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-container);
+  color: var(--color-neutral-7);
+  text-align: center;
+}
+
+.pv-hint {
+  margin: 0;
+  color: var(--color-neutral-7);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.pv-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.pv-mono {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.pv-footnote {
+  margin: 8px 0 0;
+  color: var(--color-neutral-7);
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------ sites */
+
+.pv-site {
+  align-items: flex-start;
+}
+
+.pv-site__body {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 0;
+}
+
+.pv-site__top,
+.pv-gate-row__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+
+.pv-site__name,
+.pv-gate-row__host {
+  margin: 0;
+  color: var(--color-neutral-10);
+  font-size: 16px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.pv-gate-row__host {
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.pv-site__key {
+  color: var(--color-neutral-7);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.pv-site[data-disabled] .pv-site__name,
+.pv-gate-row[data-disabled] .pv-gate-row__host {
+  color: var(--color-neutral-7);
+}
+
+.pv-site__origins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pv-site__origins .rk-badge {
+  font-family: var(--font-mono);
+}
+
+.pv-site__settings {
+  margin: 0;
+  color: var(--color-neutral-7);
+  font-size: 13px;
+}
+
+.pv-site__actions,
+.pv-gate-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------------ dialogs */
+
+.pv-dialog {
+  width: min(100vw - 32px, 520px);
+}
+
+.pv-dialog--small {
+  width: min(100vw - 32px, 420px);
+}
+
+.pv-dialog--wide {
+  width: min(100vw - 32px, 680px);
+}
+
+.pv-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+  min-width: 0;
+}
+
+.pv-form textarea {
+  resize: vertical;
+}
+
+/* Field.Description / Field.Error render as <p> without a margin reset. */
+.pv-form .rk-field__description,
+.pv-form .rk-field__error {
+  margin: 0;
+}
+
+.pv-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.pv-dialog-actions__start {
+  margin-right: auto;
+}
+
+.pv-advanced .rk-collapsible__trigger {
+  color: var(--color-neutral-8);
+  font-size: 13px;
+}
+
+.pv-advanced__mark {
+  display: inline-flex;
+  color: var(--color-neutral-6);
+  transition: transform var(--motion-spring-snappy-duration)
+    var(--motion-spring-snappy);
+}
+
+.pv-advanced .rk-collapsible__trigger[aria-expanded="true"] .pv-advanced__mark {
+  transform: rotate(90deg);
+}
+
+.pv-advanced__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 4px 0 8px;
+}
+
+.pv-check {
+  display: inline-flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-neutral-9);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.pv-secret-warning {
+  color: var(--color-warning);
+}
+
+.pv-code {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-container);
+}
+
+.pv-code__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 6px 6px 14px;
+}
+
+.pv-code__label {
+  color: var(--color-neutral-8);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.pv-code__body {
+  max-height: 260px;
+  margin: 0;
+  padding: 12px 14px 14px;
+  overflow: auto;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-neutral-2);
+  color: var(--color-neutral-9);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre;
+}
+
+.pv-readonly {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pv-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pv-switch-row__text {
+  display: grid;
+  gap: 2px;
+}
+
+.pv-switch-row__label {
+  color: var(--color-neutral-9);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------ statistics */
+
+.pv-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 20px;
+}
+
+.pv-range {
+  min-width: 240px;
+}
+
+.pv-toolbar__site {
+  min-width: min(100%, 260px);
+}
+
+.pv-select {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.pv-stats {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.pv-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pv-metric {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-container);
+  background: var(--color-neutral-2);
+}
+
+.pv-metric__label {
+  color: var(--color-neutral-7);
+  font-size: 13px;
+}
+
+.pv-metric__value {
+  color: var(--color-neutral-10);
+  font-size: var(--text-title-24);
+  line-height: var(--text-title-24--line-height);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-metric__hint {
+  color: var(--color-neutral-7);
+  font-size: 12px;
+}
+
+.pv-stats-detail {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.pv-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.pv-panel__title {
+  margin: 0;
+  color: var(--color-neutral-9);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.pv-pending {
+  margin: 0;
+  padding: 24px 16px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-container);
+  color: var(--color-neutral-7);
+  font-size: 13px;
+  text-align: center;
+}
+
+.pv-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 20px;
+}
+
+.pv-pair > .rk-list-group {
+  margin: 0;
+}
+
+.pv-counts .rk-number-roll {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------ gate */
+
+.pv-notes {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--color-neutral-7);
+  font-size: 13px;
+}
+
+.pv-gate-row {
+  align-items: center;
+}
+
+.pv-gate-row__body {
+  display: grid;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 0;
+}
+
+.pv-gate-row__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.pv-gate-row__facts div {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pv-gate-row__facts dt {
+  color: var(--color-neutral-7);
+}
+
+.pv-gate-row__facts dd {
+  margin: 0;
+  color: var(--color-neutral-9);
+}
+
+/* ------------------------------------------------------------ narrow */
+
+@media (max-width: 900px) {
+  .pv-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pv-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .pv-bar {
+    padding: 0 16px;
+  }
+
+  .pv-brand__sub {
+    display: none;
+  }
+
+  .pv-bar__user {
+    display: none;
+  }
+
+  .pv-main {
+    width: min(100% - 32px, 1080px);
+    padding-top: 16px;
+  }
+
+  .pv-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pv-head .rk-button {
+    align-self: flex-start;
+  }
+
+  .pv-login {
+    margin-top: 6vh;
+    padding: 20px;
+  }
+
+  .pv-advanced__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pv-gate-row {
+    flex-wrap: wrap;
+  }
+
+  .pv-range {
+  min-width: 240px;
+}
+
+.pv-toolbar__site {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv-advanced__mark {
+    transition: none;
+  }
+}

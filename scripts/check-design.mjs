@@ -3,10 +3,9 @@
  * scripts/check-design.mjs —— Worker 页面的 Rakko Design 合规检查（Node 标准库，零依赖）。
  *
  * 检查对象：
- *   worker/web/src 下的 .css           React 前端（展示页 / 门禁页）自己的样式
+ *   worker/web/src 下的 .css           React 前端（展示页 / 门禁页 / 后台）自己的样式
  *   worker/web/src 下的 .ts / .tsx     React 前端源码
- *   worker/src/demo-page.js、gate-page.js 服务端页面壳（首帧 HTML、style 属性）
- *   worker/src/admin/admin.css、admin.client.js、page.js  后台（不走 React，单独一组）
+ *   worker/src/demo-page.js、gate-page.js、admin/page.js  服务端页面壳（首帧 HTML、style 属性）
  *
  * 规则（注释里的内容不算）：
  *   - CSS（逐条声明）：裸 hex（只有 mask 声明里的 #000 / #fff 例外）、rgb/hsl/hwb/lab/lch/
@@ -17,12 +16,13 @@
  *   - 玻璃出生规则：选择器命中 [data-glass] 或页面骨架里带 data-glass 的元素的 class/id 时，
  *     规则块里不许有 opacity: 0 / display: none / visibility: hidden（查不到祖先元素上的隐藏）。
  *   - JS：backdrop-filter、SVG 的 fill/stroke 写死颜色（必须 currentColor 或 none）、style 属性里的 hex。
+ *   - 后台（web/src/admin）只用 @rakko/react 的 primitive：TSX 里不许出现原生 <button> / <input> /
+ *     <select> / <dialog>（textarea 只能经 Field.Control 的 render 传入），也不许在 className 里手写
+ *     rk-* 类名冒充 primitive。
  *   - 零外网：fonts.googleapis、@import url(http。
  *   - 样式入口顺序：worker/web/src/shared/base.css 前两条 @import 必须依次是
  *     '@rakko/design-system/tokens.css' 与 '@rakko/react/styles.css'；每个入口 main.tsx 第一条 import
- *     必须是 ../shared/base.css；两个页面壳必须内联 ./generated/<入口>.css。
- *     后台页面必须内联 vendor 的 tokens.generated.css、glass.css、state-layer.css，且 vendor
- *     样式在页面样式之前。
+ *     必须是 ../shared/base.css；每个页面壳必须内联 generated/<入口>.css 与 generated/<入口>.client.js。
  *   - vendor 完整性（给了 RAKKO_DESIGN_DIR 时）：vendor/rakko-design/design-system/src/* 与
  *     react/src 整棵树（排除 *.test.ts、*.test.tsx、vitest.setup.ts）跟上游逐字节一致、文件集合一致；
  *     tokens.generated.css 的两段与 scaffold 原文一致。
@@ -42,13 +42,9 @@ const BASE_CSS = join(WEB_SRC, "shared/base.css");
 const SHELLS = [
   { file: join(ROOT, "worker/src/demo-page.js"), entry: "showcase" },
   { file: join(ROOT, "worker/src/gate-page.js"), entry: "gate" },
+  { file: join(ROOT, "worker/src/admin/page.js"), entry: "admin" },
 ];
-// 后台是服务端拼的静态页（admin.css + admin.client.js 内联），不在 web/src 里，单独查。
-const ADMIN = {
-  css: join(ROOT, "worker/src/admin/admin.css"),
-  client: join(ROOT, "worker/src/admin/admin.client.js"),
-  page: join(ROOT, "worker/src/admin/page.js"),
-};
+const ADMIN_SRC = join(WEB_SRC, "admin");
 
 const issues = [];
 const rel = (p) => relative(ROOT, p).split("\\").join("/");
@@ -188,10 +184,9 @@ function checkCss(PAGE_CSS, glass) {
 
 const webGlass = glassSelectors([...SHELLS.map((s) => s.file), ...SCRIPT_FILES]);
 for (const file of CSS_FILES) checkCss(file, webGlass);
-checkCss(ADMIN.css, glassSelectors([ADMIN.page, ADMIN.client]));
 
 // ------------------------------------------------------------------ JS / HTML 骨架
-for (const file of [...SCRIPT_FILES, ...SHELLS.map((s) => s.file), ADMIN.client, ADMIN.page]) {
+for (const file of [...SCRIPT_FILES, ...SHELLS.map((s) => s.file)]) {
   const js = stripComments(read(file), "js");
   each(js, /backdrop-filter/g, (_m, line) => add(file, line, "backdrop-filter 只能来自 glass.css（用 data-glass）"));
   each(js, /\b(?:fill|stroke)="(?!currentColor|none)[^"]*"/g, (m, line) => add(file, line, `SVG 颜色写死：${m[0]}（用 currentColor）`));
@@ -222,20 +217,19 @@ for (const { file, entry } of SHELLS) {
   const first = stripComments(read(main), "js").match(/import\s+["']([^"']+)["']/)?.[1];
   if (first !== "../shared/base.css") add(main, 1, `第一条 import 必须是 "../shared/base.css"（现在是 ${first ?? "空"}）`);
   const page = read(file);
-  if (!page.includes(`./generated/${entry}.css`)) add(file, 1, `没有内联 ./generated/${entry}.css`);
-  if (!page.includes(`./generated/${entry}.client.js`)) add(file, 1, `没有内联 ./generated/${entry}.client.js`);
+  if (!page.includes(`/generated/${entry}.css"`)) add(file, 1, `没有内联 generated/${entry}.css`);
+  if (!page.includes(`/generated/${entry}.client.js"`)) add(file, 1, `没有内联 generated/${entry}.client.js`);
 }
-{
-  const page = read(ADMIN.page);
-  const imports = [
-    "vendor/rakko-design/tokens.generated.css",
-    "vendor/rakko-design/design-system/src/glass.css",
-    "vendor/rakko-design/design-system/src/state-layer.css",
-  ];
-  for (const path of imports) if (!page.includes(path)) add(ADMIN.page, 1, `没有内联 ${path}`);
-  const vendorAt = page.search(/<style[^>]*data-vendor/);
-  const pageAt = page.search(/<style[^>]*data-page/);
-  if (vendorAt === -1 || pageAt === -1 || vendorAt > pageAt) add(ADMIN.page, 1, "vendor 样式必须在页面样式之前内联");
+
+// ------------------------------------------------------------------ 后台只用 primitive
+for (const file of SCRIPT_FILES.filter((p) => p.startsWith(ADMIN_SRC) && p.endsWith(".tsx"))) {
+  const tsx = stripComments(read(file), "js");
+  each(tsx, /<(button|input|select|dialog)\b/g, (m, line) => add(file, line, `原生 <${m[1]}>：用 @rakko/react 的 primitive（Button / Field / Select / Dialog …）`));
+  each(tsx, /<textarea\b/g, (m, line) => {
+    const before = tsx.slice(Math.max(0, m.index - 40), m.index);
+    if (!/render=\{\s*$/.test(before)) add(file, line, "原生 <textarea>：用 <Field.Control render={<textarea />} />");
+  });
+  each(tsx, /className=\{?[`"'][^`"']*\brk-/g, (m, line) => add(file, line, `手写 rk-* 类名：${m[0]}（rk- 只属于 Rakko Design 的 primitive）`));
 }
 
 // ------------------------------------------------------------------ vendor 完整性

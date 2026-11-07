@@ -8,10 +8,12 @@ import { defineConfig } from "vite";
  *
  *   showcase  →  `/`                               (src/showcase/main.tsx)
  *   gate      →  the gate page and `/protected`    (src/gate/main.tsx)
+ *   admin     →  `/admin` and `/admin/callback`    (src/admin/main.tsx)
  *
  * `npm run build:web` (web/build.mjs) builds each entry on its own into exactly
  * one classic script + one stylesheet, `src/generated/<entry>.client.js` and
- * `src/generated/<entry>.css`, which `demo-page.js` / `gate-page.js` inline.
+ * `src/generated/<entry>.css`, which `demo-page.js`, `gate-page.js` and
+ * `admin/page.js` inline.
  * Nothing is fetched at runtime: no code splitting, no external fonts (the
  * gate's CSP is `default-src 'none'`), assets inlined.
  *

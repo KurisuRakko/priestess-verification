@@ -1,15 +1,17 @@
 /**
- * `npm run build:web` — builds the two front-end entries into
- * `src/generated/`, one at a time so neither can share (and so split out) a
- * chunk with the other:
+ * `npm run build:web` — builds the three front-end entries into
+ * `src/generated/`, one at a time so none can share (and so split out) a
+ * chunk with another:
  *
  *   src/generated/showcase.client.js + showcase.css   →  `/`
  *   src/generated/gate.client.js     + gate.css       →  gate page, `/protected`
+ *   src/generated/admin.client.js    + admin.css      →  `/admin`, `/admin/callback`
  *
- * The `.client.js` / `.css` names put both under wrangler's Text rules, so the
- * Worker imports them as strings and inlines them. Each script is a classic
- * IIFE (the pages load `/widget.js` first, then this). The output is checked
- * in, like the widget's `*.min.js`: rerun this after any change under `web/`.
+ * The `.client.js` / `.css` names put all of them under wrangler's Text
+ * rules, so the Worker imports them as strings and inlines them. Each script
+ * is a classic IIFE (the widget pages load `/widget.js` first, then this).
+ * The output is checked in, like the widget's `*.min.js`: rerun this after
+ * any change under `web/`.
  *
  * After building, every file is checked for `</script` and `</style`: the
  * pages inline them raw, and either sequence would end the element early
@@ -24,7 +26,7 @@ import { build } from "vite";
 
 const WEB = fileURLToPath(new URL(".", import.meta.url));
 const OUT = fileURLToPath(new URL("../src/generated/", import.meta.url));
-const ENTRIES = ["showcase", "gate"];
+const ENTRIES = ["showcase", "gate", "admin"];
 
 for (const name of ENTRIES) {
   await build({

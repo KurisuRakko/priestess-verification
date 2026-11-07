@@ -376,36 +376,31 @@ describe("admin pages", () => {
     const elements = [
       ...html.matchAll(/<(script|style)\b([^>]*)>[\s\S]*?<\/\1>/g),
     ];
-    expect(elements.length).toBeGreaterThanOrEqual(5);
+    expect(elements.length).toBeGreaterThanOrEqual(4);
     for (const [, , attrs] of elements) {
       expect(attrs).toContain(`nonce="${nonce}"`);
     }
-    expect(html).toContain('href="/admin/login"');
+    expect(html).toContain('"view":"console"');
 
     const second = await request("/admin");
     expect(second.headers.get("content-security-policy")).not.toBe(csp);
   });
 
-  it("serves the ripple modules the console imports", async () => {
-    const page = await (await request("/admin")).text();
-    expect(page).toContain('"/admin/design/ripple.js"');
+  it("no longer serves the console's old static modules", async () => {
     for (const path of [
       "/admin/design/ripple.js",
       "/admin/design/ripple-geometry.js",
     ]) {
-      const res = await request(path);
-      expect(res.status, path).toBe(200);
-      expect(res.headers.get("content-type")).toContain(
-        "application/javascript",
-      );
-      expect(await res.text(), path).toMatch(/\bexport\b/);
+      expect((await request(path)).status, path).toBe(404);
     }
   });
 
   it("serves the callback page", async () => {
     const res = await request("/admin/callback");
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("/admin/api/session");
+    const html = await res.text();
+    expect(html).toContain('"view":"callback"');
+    expect(html).toContain("/admin/api/session");
   });
 });
 
