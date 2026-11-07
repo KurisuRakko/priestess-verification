@@ -56,13 +56,14 @@ Without those three lines the widget still works, but it makes a cross-origin re
 | `POST /demo/challenge`, `POST /demo/redeem`, `POST /demo/siteverify` | the demo page's own endpoints (scope `demo`); `/demo/siteverify` needs no secret and only accepts demo-scoped tokens |
 | `POST /<siteKey>/challenge`, `POST /<siteKey>/redeem` | a registered site's endpoints (scope `site:<siteKey>`), CORS for that site's origins only |
 | `POST /<siteKey>/siteverify` | a registered site's server-to-server validation, with that site's secret |
-| `GET /admin` | admin console: register sites, edit their origins and settings, rotate secrets (Priestess sign-in) |
+| `GET /admin` | admin console: register sites, edit their origins and settings, rotate secrets, view traffic statistics and manage verification-gate hosts (Priestess sign-in; `#stats` and `#gate` open the last two tabs) |
+| `GET /admin/api/stats`, `/admin/api/gate…` | admin API behind the console for statistics and gate hosts (admin session required; see "Traffic statistics" and "Server-side gate") |
 | `GET /protected`, `GET /protected/*` | server-side gate demo: a full-page challenge (403) until the visitor holds a pass, then a built-in example page |
-| any path on a `GATE_UPSTREAMS` host | server-side gate in front of a whole site: challenge page until the visitor holds a pass, then reverse-proxied to the upstream origin |
+| any path on a gate host (`GATE_UPSTREAMS` or a host added in `/admin`) | server-side gate in front of a whole site: challenge page until the visitor holds a pass, then reverse-proxied to the upstream origin; exempt paths and disabled hosts are proxied without a pass |
 | `GET /__gate/widget.js`, `/__gate/mascot/*.webp`, `/__gate/*.wasm`, `/__gate/pako_inflate.min.js` | the assets above under the gate's reserved prefix, so the gate page stays same-origin on every gated host |
 | `POST /__gate/challenge`, `POST /__gate/redeem`, `POST /__gate/pass`, `POST /__gate/logout` | the gate's own endpoints (scope `gate`); `/__gate/pass` (same-origin only) consumes a gate token and sets the pass cookie, `/__gate/logout` clears it |
 
-The gate is routed first: `/__gate/*` is answered by the Worker on every host, and on a `GATE_UPSTREAMS` host every other path is gated and proxied, so `/admin`, the `/<siteKey>/…` routes and the rest of the table are only reachable on the Worker's own host.
+The gate is routed first: `/__gate/*` is answered by the Worker on every host, and on a gate host (`GATE_UPSTREAMS` or a host added in `/admin`) every other path is gated and proxied — except exempt paths and disabled hosts, which are proxied without a pass — so `/admin`, the `/<siteKey>/…` routes and the rest of the table are only reachable on hosts that are not gate hosts.
 
 The static assets (widget scripts, wasm, pako, mascot art) are public and always send `Access-Control-Allow-Origin: *`. `/challenge`, `/redeem` and their per-site versions echo the allowed `Origin` and send `Vary: Origin` unconditionally, including for requests without an `Origin` header, so a cached no-`Origin` variant can never be replayed to a CORS caller.
 
@@ -74,15 +75,110 @@ Sites live in the `SiteRegistry` Durable Object. The Worker caches each lookup (
 
 The console signs in through Priestess (Phainon app `priestess-verification`, native login-code flow with state + S256 PKCE). The Worker exchanges the login code, reads `/me` and revokes the Priestess refresh token straight away, all server-side; then it requires the Priestess `sub` to be listed in `ADMIN_ALLOWED_SUBS` (empty = nobody) and sets its own 8-hour `__Host-pv_admin` session cookie. Revoking a user in Priestess does not end a console session that already exists; it expires on its own, or immediately once the sub is removed from `ADMIN_ALLOWED_SUBS` and the Worker redeployed.
 
+### Traffic statistics
+
+The console's statistics tab (`/admin#stats`) reads counters kept in the `StatsStore` Durable Object (single instance, `getByName("global")`). The Worker records the following events; an empty reason cell means the event is recorded without a reason.
+
+| Event | Reasons |
+| --- | --- |
+| `challenge_issued` | |
+| `redeem_ok` | |
+| `redeem_fail` | `invalid_solution`, `expired`, `already_redeemed`, `instr_blocked`, `instr_timeout`, `invalid_token`, `bad_request`, `internal`, `other` |
+| `siteverify_ok` | |
+| `siteverify_fail` | `invalid_secret`, `token_not_found`, `token_expired`, `bad_request`, `internal`, `other` |
+| `gate_shown` | |
+| `gate_pass` | |
+| `gate_pass_fail` | `token_not_found`, `token_expired`, `bad_request`, `other` |
+| `rate_limited` | `challenge`, `redeem`, `gate_pass` |
+
+For `redeem_fail`, `instr_blocked` covers an instrumentation error or a `blockedBy` result, `invalid_token` includes a scope mismatch, `bad_request` covers `invalid_body`, `missing_token`, `missing_solutions` and `invalid_solutions`, and `internal` covers a nonce-store error and a missing `CAP_SECRET`. For `rate_limited`, the reason is the entry point that was limited.
+
+The `site` dimension has three forms:
+
+- a registered site's key, for `/<siteKey>/challenge`, `/<siteKey>/redeem` and `/<siteKey>/siteverify`;
+- `gate:<host>`, with the request host lowercased, for `/__gate/*`, the gate page, `/protected` and pass handling;
+- `default`, for `/challenge`, `/redeem`, `/siteverify` and the demo routes.
+
+Counters are aggregated: one row per site, UTC hour, event and reason. The hour value is the Unix timestamp of the start of the UTC hour. Every write is an UPSERT that adds to the existing count. `recordEvent` writes through `ctx.waitUntil`, so recording neither delays nor fails the response; a failed write is logged. Without the `STATS_STORE` binding or an execution context, recording is a no-op.
+
+Counters are retained for 90 days. Rows older than the retention window are deleted by the first write of each new UTC hour; no alarm is used for this cleanup, and an hour without traffic performs no deletion.
+
+The store contains no IP address, User-Agent, cookie, session ID, token or country. The stored facts are the site identifier, the UTC hour, the event, the reason and the count. The client IP is used only as a rate-limit key and is never written to `StatsStore`.
+
+Rejected requests are sampled for the `rate_limited` event: approximately one rejection in ten is written, with a weight of 10. The resulting counts are estimates for the limited entry point.
+
+`GET /admin/api/stats` requires an admin session.
+
+| Parameter | Meaning |
+| --- | --- |
+| `range` | `24h`, `7d` or `30d`; default `24h`. |
+| `site` | Optional site key, `default`, or `gate:<host>`. |
+| `tz` | Optional offset in minutes east of UTC; default `0`, range `-720` to `840`, rounded to a whole hour. |
+
+`24h` produces 24 hourly buckets. `7d` and `30d` produce 7 and 30 daily buckets, with day boundaries at local midnight for `tz`. Buckets are contiguous, zero-filled and in ascending order; the last bucket contains the current moment.
+
+The response has the following structure (a schema sketch, not literal JSON):
+
+```text
+{
+  "range": "24h",
+  "bucket": "hour",
+  "tz": 660,
+  "from": "<ISO 8601>",
+  "to": "<ISO 8601>",
+  "generatedAt": "<ISO 8601>",
+  "site": null,
+  "events": [ <the nine event names, in a fixed order> ],
+  "totals": { <each of the nine event names>: 0 },
+  "reasons": {
+    "redeem_fail": { <reason>: 0 },
+    "siteverify_fail": { <reason>: 0 },
+    "gate_pass_fail": { <reason>: 0 },
+    "rate_limited": { <reason>: 0 }
+  },
+  "series": [ { "t": "<ISO 8601>", <each of the nine event names>: 0 } ],
+  "bySite": [
+    { "site": "<site>", "label": "<label>", "kind": "site|gate|default", <each of the nine event names>: 0 }
+  ]
+}
+```
+
+`totals` and every `series` row always contain all nine event keys, with zero for an event that has no data. Each reason group is present; a group contains only the reasons that were recorded. `bySite` always covers every site seen in the range, even when `site` is set; it is sorted by `challenge_issued` in descending order, then by site identifier. `label` is the registered site's name, the host for a `gate:<host>` entry, `default`, or the site key when the registry has no matching site.
+
+With a session, invalid parameters answer `400` with `{ "error": "<short message>" }`, a non-GET request answers `405`, and a deployment without `STATS_STORE` answers `503`. Responses are sent with `Cache-Control: no-store`.
+
+### Rate limiting
+
+Two rate-limit bindings are configured in `wrangler.jsonc`; `RL_REDEEM` serves both redeem and gate-pass checks under different key prefixes:
+
+| Binding | Limit | Key prefix | Entry points |
+| --- | --- | --- | --- |
+| `RL_CHALLENGE` | 60 requests per 60 seconds | `challenge:` | `/challenge`, `/demo/challenge`, `/<siteKey>/challenge`, `/__gate/challenge` |
+| `RL_REDEEM` | 30 requests per 60 seconds | `redeem:` | `/redeem`, `/demo/redeem`, `/<siteKey>/redeem`, `/__gate/redeem` |
+| `RL_REDEEM` | 30 requests per 60 seconds | `gate_pass:` | `/__gate/pass` |
+
+The key is `<kind>:<CF-Connecting-IP>`. For rate limiting, the IP exists only in that key for the duration of the limit check; the Worker does not persist it. Limits are counted per Cloudflare location and are approximate by design.
+
+The check runs before the rate-limited handler's Durable Object work. For a registered site's route it runs before that site's registry lookup, and for redeem and gate-pass entries it runs before the token store is touched. If the binding is missing, the `CF-Connecting-IP` header is missing, or the binding throws, the request is allowed; rate limiting must not take verification down.
+
+A limited request answers HTTP `429` with `Retry-After: 60` and the body
+
+```json
+{ "success": false, "reason": "rate_limited", "error": "Too many requests" }
+```
+
+Where the entry point sends CORS headers, the 429 response carries them as well. A limited request for an unknown site key answers `429` but is not counted, so random site keys cannot add statistics rows. The `siteverify` endpoints are not rate limited.
 
 ### Local development
 
 ```sh
 cd worker
-npm install
+npm ci
 cp .dev.vars.example .dev.vars   # then replace both secrets
 npm run dev                      # http://127.0.0.1:8787
 ```
+
+`worker/package-lock.json` is tracked in the repository; the root `.gitignore` excludes `package-lock.json` and then re-includes this file. CI installs with `npm ci`, so a dependency change must include the updated lockfile in the same commit.
 
 `wrangler.jsonc` pins a single `compatibility_date` (`2026-09-25`) that `wrangler dev`, the vitest pool and `wrangler deploy` all use, so local, CI and production run the same runtime semantics.
 
@@ -117,7 +213,7 @@ The custom domain is attached by the deploy itself, so the account needs the zon
 
 ```sh
 cd worker
-npm install                                  # required: wrangler.jsonc points its $schema at node_modules
+npm ci                                       # required: wrangler.jsonc points its $schema at node_modules
 npx wrangler login
 npx wrangler secret put CAP_SECRET           # e.g. openssl rand -hex 32
 npx wrangler secret put SITEVERIFY_SECRET    # e.g. openssl rand -hex 32
@@ -126,7 +222,26 @@ npx wrangler deploy
 
 `ALLOWED_ORIGINS` is a comma separated list of extra browser origins allowed to call the legacy `/challenge` and `/redeem`; the worker's own origin is always allowed, and `/siteverify` never sends CORS headers. New embedders should be registered as sites in `/admin` instead, which needs no redeploy.
 
-The deploy applies the `v2` Durable Object migration (`SiteRegistry`). The Phainon app `priestess-verification` must exist with `https://verify.rakko.cn` as its allowed origin and `https://verify.rakko.cn/admin/callback` as its return URL.
+The deploy applies the `v2` (`SiteRegistry`) and `v3` (`StatsStore`) Durable Object migrations. The Phainon app `priestess-verification` must exist with `https://verify.rakko.cn` as its allowed origin and `https://verify.rakko.cn/admin/callback` as its return URL.
+
+#### Continuous deployment
+
+`.github/workflows/worker.yml` runs on pushes that touch `worker/**`, `core/**`, `vendor/rakko-design/**` or the workflow file, on pull requests to `main` that touch the same paths, and on manual dispatch.
+
+The `test` job runs on Ubuntu with Node.js 22: `npm ci` in `worker/` (using `worker/package-lock.json` for the cache and the install), `npm test`, `npm run build:web`, a `git diff --exit-code -- src/generated` check that fails when the checked-in bundles are stale, and `node scripts/check-design.mjs` from the repository root.
+
+The `deploy` job depends on `test`, runs only for a push to `main`, and uses the `worker-deploy` concurrency group without cancelling an in-progress deployment. Its first step reads `CLOUDFLARE_API_TOKEN`; when the secret is absent, the step records a notice and every remaining deploy step is skipped. Otherwise the job installs with `npm ci` and runs `npx wrangler deploy` with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The workflow does not run `scripts/acceptance.mjs` or `scripts/browser-e2e.mjs`; those remain local checks.
+
+The workflow needs two GitHub Actions repository secrets, which are separate from the Worker's own secrets set with `wrangler secret put`:
+
+| Secret | Use |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Authenticates the deploy step; its absence skips the deploy. |
+| `CLOUDFLARE_ACCOUNT_ID` | Selects the Cloudflare account for the deploy. |
+
+Create the API token in the Cloudflare dashboard from the `Edit Cloudflare Workers` template, select this account under Account Resources, and include the `rakko.cn` zone under Zone Resources. Store the token as `CLOUDFLARE_API_TOKEN` and the account ID as `CLOUDFLARE_ACCOUNT_ID`; do not commit either value.
+
+A push to `main` is the normal deployment path. A manual `npx wrangler deploy` from `worker/` remains available for a first deployment or when GitHub Actions is unavailable; it applies pending Durable Object migrations, including `v3` for `StatsStore`.
 
 ### Calling `/siteverify` from your backend
 
@@ -155,20 +270,30 @@ Instrumentation obfuscation levels 4-10 fall back to a weaker script inside Work
 
 Besides the embeddable widget, the Worker can stand in front of a whole website, like Cloudflare's challenge page: a visitor without a valid pass gets a full-screen page (status 403, `Cache-Control: no-store`, `X-Robots-Tag: noindex`, a nonce-based CSP) on which a mascot + auto widget solves a challenge by itself, trades the token for a pass cookie at `POST /__gate/pass` and reloads the page they asked for. Non-HTML requests without a pass (API calls, `POST`s, anything whose `Accept` lacks `text/html`) get `403 {"success":false,"error":"gate_required"}`. Every gate response carries a random `X-Gate-Ray` request ID, also shown in the page footer. `/__gate/*` is reserved on every gated host and always answered by the Worker, never by the upstream.
 
-On the Worker's own host only `/protected` and `/protected/*` are gated (a built-in example page with the pass's remaining time and a "clear the pass" button). To gate a real site:
+On the Worker's own host only `/protected` and `/protected/*` are gated (a built-in example page with the pass's remaining time and a "clear the pass" button). To gate a real site, add the host in one of two ways:
 
-1. Map its public hostname to the origin that actually serves it, in `wrangler.jsonc` `vars`:
+- **In the console (recommended).** Open `/admin`, switch to the 验证网关 tab and add the hostname, its upstream origin, optional exempt paths and the enabled flag. This writes the `gate_hosts` table in `SiteRegistry`: the policy change needs no redeploy and reaches every isolate within 60 seconds. The hostname must still be routed to this Worker (see the routing requirement below); the console manages policy, not routing.
+- **In `wrangler.jsonc`.** Map its public hostname to the origin that actually serves it:
    ```jsonc
    "GATE_UPSTREAMS": "{\"example.com\":\"https://origin.example.com\"}"
    ```
-   Keys are bare hostnames, values bare `https:` origins; anything else fails every request with a logged config error.
-2. Route the hostname to this Worker, e.g. `"routes": [{ "pattern": "example.com/*", "zone_name": "example.com" }, …]`. The upstream must be reachable under a hostname that is **not** routed to this Worker (otherwise the proxy loops back into the gate).
+   Keys are bare hostnames, values bare `https:` origins; anything else fails every request with a logged config error. These hosts are read-only in the console and API, always enabled, and have no exempt paths.
+
+Either way, route the hostname to this Worker, e.g. `"routes": [{ "pattern": "example.com/*", "zone_name": "example.com" }, …]`. The upstream must be reachable under a hostname that is **not** routed to this Worker (otherwise the proxy loops back into the gate).
+
+An admin host is validated on write: `host` is a lowercase bare hostname without a port, must not be one of the Worker's own hosts, and `upstream` must be a bare `https:` origin whose hostname differs from `host`; the table holds at most 200 hosts. A host cannot live in both sources: `GATE_UPSTREAMS` wins at request time, and the admin API answers `409` when asked to create, update or delete a configured host. A duplicate admin host also answers `409`.
+
+An exempt path is proxied to the upstream without a pass check. An entry ending in `/` matches as a prefix (`/api/` covers `/api/x`); any other entry matches exactly, or matches a path that starts with the entry followed by `/` (`/robots.txt` covers `/robots.txt` and `/robots.txt/x`, not `/robots.txtx`). The pathname comes from the parsed request URL, so `..` segments are already resolved; a pathname that still contains `%2f`, `%5c` or `%2e`, in either case, never matches. An admin host accepts at most 50 exempt paths, each starting with `/`, at most 256 characters, with no `?`, `#`, `..` or whitespace, not `/`, not under `/__gate/`, and duplicates are removed. When `enabled` is `false`, every request outside `/__gate/` is proxied to the upstream without a pass check; `/__gate/*` is still answered by the Worker.
+
+Each isolate caches the complete admin host table and refreshes it after 60 seconds; a write through the admin API drops the snapshot in the isolate that handled it immediately, so other isolates normally pick the change up within 60 seconds. If a refresh fails while an older snapshot exists, that snapshot keeps serving and the read is retried after 5 seconds (`GATE_RETRY_MS` in `worker/src/gate-hosts.js`). `selfHosts` is derived from the hostnames in `ALLOWED_ORIGINS`, minus any host that `GATE_UPSTREAMS` gates; these are the hostnames on which the Worker answers as itself. Requests to a self host never read the gate host table, and the admin API rejects an attempt to add one as a gate host.
 
 Passed requests are proxied with their method, headers and body intact (`redirect: "manual"`), with `X-Forwarded-Host` / `X-Forwarded-Proto` set, our `__pv_pass` cookie removed from `Cookie`, and `Location` headers that point at the upstream origin rewritten onto the public host. `Origin` and `Referer` still name the public host, so an origin with strict CSRF checks must accept it.
 
 The pass is the `__pv_pass` cookie, `1.<exp>.<mac>`, with `HttpOnly; Secure; SameSite=Lax; Path=/` and `Max-Age` = `GATE_PASS_TTL_S` (default 1800, 60–86400). `mac` is an HMAC-SHA256 over the host (or cookie domain, below), the expiry and a SHA-256 of the `User-Agent`; it is not bound to the IP, so it survives network changes, and is checked in constant time. The key is the `GATE_COOKIE_SECRET` secret (`npx wrangler secret put GATE_COOKIE_SECRET`); when unset it is derived from `SITEVERIFY_SECRET` as HMAC-SHA256(SITEVERIFY_SECRET, `"gate-cookie"`), so rotating either secret invalidates every pass. Gate tokens are single use, and gate, site and demo tokens never cross scopes (`/__gate/pass` rejects site/demo tokens, `/siteverify` and `/demo/siteverify` reject gate tokens). The `return` path posted to `/__gate/pass` must be a same-origin path (starting with a single `/`); anything else redirects to `/`.
 
 `GATE_COOKIE_DOMAIN` (optional, e.g. `rakko.cn` or `.rakko.cn`) shares one pass across subdomains: the cookie is then set (and cleared) with `Domain=rakko.cn` and signed for the domain instead of the host, so a pass earned on `a.rakko.cn` is accepted on `b.rakko.cn` and `rakko.cn`, but never on `evil-rakko.cn` or `rakko.cn.evil.com`. A request host outside the domain keeps the host-only behaviour. Every subdomain — including ones that are not gated or not yours to trust — can then read the cookie; it only proves that a browser with this `User-Agent` passed a verification, it is not a session or an identity, so do not use it as one.
+
+When a gate check fails, the page classifies the cause into one of five kinds and shows the matching label, a handling hint, a retry control and an error code, in Chinese or English selected from `Accept-Language`: `rate_limited` (too many requests from this network; wait one minute), `env_blocked` (an instrumentation block or timeout; disable script-modifying extensions or update the browser), `expired` (a challenge or token that expired or was already used; verify again), `network` (a fetch, JSON-parse or wasm-load failure; check the connection), and `unknown` (anything else; verify again, and give the session ID at the bottom of the page to the site administrator). The page does not include contact details.
 
 ### Free plan capacity
 
@@ -178,13 +303,15 @@ One full verification (`/challenge` → `/redeem` → `/siteverify`) costs:
 
 | Metered dimension | Cost per verification | Free limit ÷ cost |
 | --- | --- | --- |
-| Durable Object rows written | **3** — the redeem INSERT (claim + token row), the siteverify UPDATE that consumes it, and the sweep DELETE | **33,333 / day** |
-| Durable Object requests | **2** — one to redeem, one to verify (plus the alarms, below) | ~50,000 / day |
+| Durable Object rows written | **6** — the three token-store writes (redeem INSERT, siteverify UPDATE, sweep DELETE) and three `StatsStore` UPSERTs (`challenge_issued`, `redeem_ok`, `siteverify_ok`) | **16,666 / day** |
+| Durable Object requests | **5** — one to redeem and one to verify (token store) plus three `StatsStore` `record` RPCs | 20,000 / day |
 | Worker requests | **3** — challenge, redeem, siteverify (the widget/page itself is cached) | ~33,000 / day |
 
-So the free plan supports **~33,000 verifications/day**, and **rows written is the binding limit**. That is why the store keeps one row per redeem — the challenge claim and the token are the same row — has **no secondary indexes** (every index entry is billed as an extra row written on insert and delete), keeps the alarm cadence at 5 minutes and only calls `setAlarm()` when none is pending (4 shards × 288 alarms/day ≈ 1,150 alarms and ≈ 1,150 extra row writes per day, i.e. ~1% of the budget).
+So the free plan supports **~16,666 verifications/day**, and **rows written is still the binding limit**. The statistics add one `record` RPC and one row write per recorded event: `challenge_issued`, `redeem_ok` and `siteverify_ok` each cost one `StatsStore` call and one UPSERT, which doubles rows written from 3 to 6 and halves the ceiling from ~33,333 to ~16,666. The counters stay compact — one row per site, UTC hour, event and reason, not one row per verification. The hourly retention purge is an extra `DELETE` on the first write of each new UTC hour; its cost is proportional to the number of counter rows in the expired hour, not to verification volume, so it does not change the per-verification figure. That is why the token store keeps one row per redeem — the challenge claim and the token are the same row — has **no secondary indexes** (every index entry is billed as an extra row written on insert and delete), keeps the alarm cadence at 5 minutes and only calls `setAlarm()` when none is pending (4 shards × 288 alarms/day ≈ 1,150 alarms and ≈ 1,150 extra row writes per day, i.e. ~1% of the rows-written budget).
 
 Expired rows are still cleaned up: deletes happen opportunistically on write (at most once per 5 minutes per shard) and from the alarm while rows remain; a row that outlives its `expires` is rejected by `/siteverify` with `Token expired` because the expiry is checked on read, so the sweep is about storage hygiene, not correctness. The atomicity and single-use guarantees are unchanged: the redeem INSERT is "insert if absent" (a replayed challenge gets `already_redeemed`), and verification is a single conditional `UPDATE … RETURNING` that can only succeed once.
+
+These figures are the free plan's. The Workers Paid plan has different included allowances and overage pricing for Durable Object requests and rows written; recompute against that plan's current pricing before sizing a deployment.
 
 ## Documentation
 
