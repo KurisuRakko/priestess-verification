@@ -299,6 +299,12 @@
   transform: rotate(90deg);
 }
 
+.pv-advanced__note {
+  margin: 4px 0 8px;
+  color: var(--color-neutral-7);
+  font-size: 13px;
+}
+
 .pv-advanced__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -467,7 +473,7 @@
 
 .pv-pair {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: start;
   gap: 20px;
 }
@@ -540,10 +546,10 @@
   }
 
   .pv-range {
-  min-width: 240px;
-}
+    min-width: 240px;
+  }
 
-.pv-toolbar__site {
+  .pv-toolbar__site {
     width: 100%;
   }
 }

@@ -34,6 +34,8 @@ import {
 } from "../web/src/admin/gate.ts";
 import {
   describeSettings,
+  powKinds,
+  protocolNote,
   siteBody,
   siteForm,
   snippets,
@@ -44,7 +46,9 @@ import {
   metrics,
   passRate,
   periodText,
+  raisedCount,
   reasonSections,
+  riskRows,
   siteOptions,
   STATS_NOTES,
 } from "../web/src/admin/stats.ts";
@@ -80,7 +84,8 @@ describe("admin shell", () => {
     // (Counted at line starts: the bundle itself mentions `<script>`.)
     const scripts = [...html.matchAll(/^\s*<script\b([^>]*)>/gm)];
     expect(scripts).toHaveLength(3);
-    for (const [, attrs] of scripts) expect(attrs).toContain(`nonce="${nonce}"`);
+    for (const [, attrs] of scripts)
+      expect(attrs).toContain(`nonce="${nonce}"`);
     expect(html).toContain('localStorage.getItem("pv-theme")');
     expect(html).toContain('id="root"');
     expect(pageConfig(html)).toEqual({ view: "console" });
@@ -183,20 +188,22 @@ describe("admin console gate errors", () => {
       field: "host",
       detail: "该域名已存在于后台或部署配置中。",
     });
-    expect(describeGateError({ status: 409, message: "HTTP 409" }, false)).toEqual(
-      {
-        text: "该域名由部署配置定义，无法在后台修改。",
-        field: null,
-        detail: "该域名由部署配置定义，无法在后台修改。",
-      },
-    );
+    expect(
+      describeGateError({ status: 409, message: "HTTP 409" }, false),
+    ).toEqual({
+      text: "该域名由部署配置定义，无法在后台修改。",
+      field: null,
+      detail: "该域名由部署配置定义，无法在后台修改。",
+    });
     expect(
       describeGateError({ status: 404, message: "HTTP 404" }, false).text,
     ).toBe("该域名不存在，可能已被删除。");
   });
 
   it("shows only the Chinese explanation under the field it is about", () => {
-    const message = messageOf(() => validateUpstream("http://o.test", "g.test"));
+    const message = messageOf(() =>
+      validateUpstream("http://o.test", "g.test"),
+    );
     const { text, field, detail } = describeGateError(
       { status: 400, message },
       true,
@@ -242,11 +249,17 @@ describe("admin console site errors", () => {
       [
         () =>
           validateOrigins(
-            Array.from({ length: MAX_ORIGINS + 1 }, (_, i) => `https://a${i}.test`),
+            Array.from(
+              { length: MAX_ORIGINS + 1 },
+              (_, i) => `https://a${i}.test`,
+            ),
           ),
         "origins",
       ],
-      [() => validateSettings({ challengeDifficulty: 99 }), "challengeDifficulty"],
+      [
+        () => validateSettings({ challengeDifficulty: 99 }),
+        "challengeDifficulty",
+      ],
       [() => validateSettings({ challengeCount: 0 }), "challengeCount"],
       [() => validateSettings({ tokenTtlMs: 1 }), "tokenTtlMinutes"],
     ];
@@ -259,23 +272,32 @@ describe("admin console site errors", () => {
     }
     // admin/api.js's own messages.
     expect(
-      describeSiteError({ status: 400, message: "at least one origin is required" }),
+      describeSiteError({
+        status: 400,
+        message: "at least one origin is required",
+      }),
     ).toEqual({ text: "至少需要填写一个允许的域名。", field: "origins" });
     expect(
       describeSiteError({ status: 400, message: "at most 200 sites" }),
-    ).toEqual({ text: "站点数量已达上限，请先删除不再使用的站点。", field: null });
+    ).toEqual({
+      text: "站点数量已达上限，请先删除不再使用的站点。",
+      field: null,
+    });
     expect(SITE_SETTING_RANGES.challengeDifficulty).toEqual([1, 16]);
   });
 
   it("reads 404 in Chinese and falls back to the general text with the original", () => {
-    expect(siteFailureText("disable", { status: 404, message: "site not found" }))
-      .toBe("停用失败：该站点不存在，可能已被删除。");
+    expect(
+      siteFailureText("disable", { status: 404, message: "site not found" }),
+    ).toBe("停用失败：该站点不存在，可能已被删除。");
     expect(siteFailureText("rotate", { status: 500, message: "boom" })).toBe(
       "轮换失败：服务内部错误，请稍后重试。（原始信息：boom）",
     );
     expect(
       siteFailureText("load", { status: null, message: "Failed to fetch" }),
-    ).toBe("站点列表加载失败：网络连接异常，请稍后重试。（原始信息：Failed to fetch）");
+    ).toBe(
+      "站点列表加载失败：网络连接异常，请稍后重试。（原始信息：Failed to fetch）",
+    );
     expect(
       siteFailureText("delete", { status: 400, message: "something new" }),
     ).toBe("删除失败：提交的内容未通过校验。（原始信息：something new）");
@@ -349,6 +371,41 @@ describe("admin console statistics", () => {
     });
     expect(byLabel.通过率.hint).toBe("验证通过 ÷（验证通过 + 验证失败）");
     expect(byLabel.通过率.value).toBe("50.0%");
+    expect(byLabel.发出挑战.hint).toBe("其中提高难度 0 次");
+    const raised = metrics(totals, {
+      challenge_issued: { datacenter: 1000, "warp+burst": 234 },
+    });
+    expect(raised[0]).toEqual({
+      label: "发出挑战",
+      value: "1,200",
+      hint: "其中提高难度 1,234 次",
+    });
+  });
+
+  it("lists the raised-difficulty reasons that occurred, in a fixed order", () => {
+    expect(raisedCount(undefined)).toBe(0);
+    expect(riskRows({})).toEqual([]);
+    const reasons = {
+      challenge_issued: {
+        "warp+burst": 1,
+        burst: 4,
+        datacenter: 2,
+        future: 1,
+        warp: 0,
+      },
+    };
+    expect(raisedCount(reasons)).toBe(8);
+    expect(riskRows(reasons)).toEqual([
+      { reason: "datacenter", label: "机房网络", count: 2 },
+      { reason: "burst", label: "短时间频繁请求", count: 4 },
+      { reason: "warp+burst", label: "Cloudflare WARP 且频繁请求", count: 1 },
+      { reason: "future", label: "future", count: 1 },
+    ]);
+    expect(
+      riskRows({
+        challenge_issued: { warp: 1, "datacenter+burst": 1 },
+      }).map((row) => row.label),
+    ).toEqual(["Cloudflare WARP", "机房网络且频繁请求"]);
   });
 
   it("labels failure and rate-limit reasons, most frequent first", () => {
@@ -396,7 +453,16 @@ describe("admin console statistics", () => {
 });
 
 describe("admin console sites", () => {
-  it("round-trips the site form and sends empty settings as null", () => {
+  const DEFAULTS = {
+    challengeDifficulty: 4,
+    challengeCount: 50,
+    challengeSize: 32,
+    hashwxDifficulty: 150000,
+    tokenTtlMs: 1200000,
+    blockAutomatedBrowsers: false,
+  };
+
+  it("round-trips the site form and sends only the changed settings", () => {
     const site = {
       siteKey: "0123456789",
       name: "Blog",
@@ -404,37 +470,108 @@ describe("admin console sites", () => {
       enabled: true,
       settings: { challengeDifficulty: 5, tokenTtlMs: 600000 },
     };
-    const form = siteForm(site);
+    const form = siteForm(site, DEFAULTS);
     expect(form).toEqual({
       name: "Blog",
       origins: "https://a.test\nhttps://b.test",
       challengeDifficulty: "5",
       challengeCount: "",
+      hashwxDifficulty: "",
       tokenTtlMinutes: "10",
       blockAutomatedBrowsers: false,
     });
-    expect(siteBody({ ...form, origins: " https://a.test \n\nhttps://c.test " }))
-      .toEqual({
-        name: "Blog",
-        origins: ["https://a.test", "https://c.test"],
-        settings: {
-          challengeDifficulty: "5",
-          challengeCount: null,
-          tokenTtlMs: 600000,
-          blockAutomatedBrowsers: null,
+    expect(
+      siteBody(
+        { ...form, origins: " https://a.test \n\nhttps://c.test " },
+        site,
+        DEFAULTS,
+      ),
+    ).toEqual({
+      name: "Blog",
+      origins: ["https://a.test", "https://c.test"],
+      settings: { challengeDifficulty: 5, tokenTtlMs: 600000 },
+    });
+    expect(
+      siteBody(
+        {
+          ...form,
+          challengeDifficulty: "",
+          hashwxDifficulty: "300000",
+          tokenTtlMinutes: "15",
+          blockAutomatedBrowsers: true,
         },
-      });
-    expect(describeSettings(site.settings)).toBe(
-      "难度 5 · token 有效期 10 分钟",
+        site,
+        DEFAULTS,
+      ).settings,
+    ).toEqual({
+      challengeDifficulty: null,
+      hashwxDifficulty: "300000",
+      tokenTtlMs: 900000,
+      blockAutomatedBrowsers: true,
+    });
+  });
+
+  it("keeps hidden and unchanged settings exactly as stored", () => {
+    const site = {
+      siteKey: "0123456789",
+      name: "Blog",
+      origins: ["https://a.test"],
+      enabled: true,
+      // challengeSize has no field at all; 15 s is not a whole minute.
+      settings: {
+        challengeSize: 64,
+        tokenTtlMs: 15000,
+        blockAutomatedBrowsers: false,
+      },
+    };
+    const form = siteForm(site, DEFAULTS);
+    expect(form.tokenTtlMinutes).toBe("0.25");
+    expect(
+      siteBody({ ...form, name: "Renamed" }, site, DEFAULTS).settings,
+    ).toEqual(site.settings);
+    // A new site sends nothing the admin left empty.
+    expect(siteBody(siteForm(null, DEFAULTS), null, DEFAULTS).settings).toEqual(
+      {},
+    );
+    // Unticking back to the default drops the override instead of storing it.
+    const ticked = { ...site, settings: { blockAutomatedBrowsers: true } };
+    expect(
+      siteBody(
+        { ...siteForm(ticked, DEFAULTS), blockAutomatedBrowsers: false },
+        ticked,
+        DEFAULTS,
+      ).settings,
+    ).toEqual({ blockAutomatedBrowsers: null });
+  });
+
+  it("describes settings for the protocol in effect", () => {
+    const settings = {
+      challengeDifficulty: 5,
+      hashwxDifficulty: 300000,
+      tokenTtlMs: 600000,
+    };
+    expect(describeSettings(settings, "hashwx")).toBe(
+      "SHA-256 难度 5（当前协议下不生效） · HashWX 难度 300000 · token 有效期 10 分钟",
+    );
+    expect(describeSettings(settings, "legacy")).toBe(
+      "SHA-256 难度 5 · HashWX 难度 300000（当前协议下不生效） · token 有效期 10 分钟",
+    );
+    expect(powKinds("legacy")).toEqual({ sha256: true, hashwx: false });
+    expect(powKinds("hashwx")).toEqual({ sha256: false, hashwx: true });
+    expect(powKinds("sha256-pow,hashwx")).toEqual({
+      sha256: true,
+      hashwx: true,
+    });
+    expect(powKinds("")).toEqual({ sha256: false, hashwx: false });
+    expect(protocolNote("hashwx")).toBe(
+      "当前工作量证明为 HashWX，SHA-256 相关设置不适用，因此不予显示。",
     );
   });
 
   it("writes the integration snippets for this origin", () => {
     const { frontend, backend } = snippets(ORIGIN, "0123456789");
     expect(frontend).toContain(`<script src="${ORIGIN}/widget.js"></script>`);
-    expect(frontend).toContain(
-      `data-cap-api-endpoint="${ORIGIN}/0123456789/"`,
-    );
+    expect(frontend).toContain(`data-cap-api-endpoint="${ORIGIN}/0123456789/"`);
     expect(backend).toContain(`"${ORIGIN}/0123456789/siteverify"`);
   });
 });

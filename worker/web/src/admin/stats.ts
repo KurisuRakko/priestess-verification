@@ -29,6 +29,7 @@ export const RANGES: ReadonlyArray<readonly [Range, string]> = [
 ];
 
 export type ReasonGroup =
+  | "challenge_issued"
   | "redeem_fail"
   | "siteverify_fail"
   | "gate_pass_fail"
@@ -77,12 +78,22 @@ const RATE_LIMIT_LABELS: Readonly<Record<string, string>> = {
   siteverify: "服务端核验",
 };
 
+/** `challenge_issued` reasons: why the difficulty was raised (risk.js). */
+export const RISK_LABELS: ReadonlyArray<readonly [string, string]> = [
+  ["datacenter", "机房网络"],
+  ["warp", "Cloudflare WARP"],
+  ["burst", "短时间频繁请求"],
+  ["datacenter+burst", "机房网络且频繁请求"],
+  ["warp+burst", "Cloudflare WARP 且频繁请求"],
+];
+
 export const KIND_LABELS: Readonly<Record<string, string>> = {
   site: "站点",
   gate: "验证网关",
   default: "旧接口",
 };
 
+/** The failure tables' groups (`challenge_issued` has its own list). */
 export const REASON_GROUPS: readonly ReasonGroup[] = [
   "redeem_fail",
   "siteverify_fail",
@@ -204,10 +215,48 @@ export interface Metric {
   hint: string;
 }
 
+/** Challenges issued with a raised difficulty, any reason. */
+export function raisedCount(reasons: StatsData["reasons"] | undefined): number {
+  return Object.values(reasons?.challenge_issued || {}).reduce(
+    (sum, n) => sum + n,
+    0,
+  );
+}
+
+export interface RiskRow {
+  reason: string;
+  label: string;
+  count: number;
+}
+
+/**
+ * The 提高难度 list: one row per reason that occurred, in the fixed order of
+ * `RISK_LABELS`; an unknown reason keeps its raw name at the end.
+ */
+export function riskRows(reasons: StatsData["reasons"] | undefined): RiskRow[] {
+  const counts = reasons?.challenge_issued || {};
+  const known = new Map(RISK_LABELS);
+  const rows: RiskRow[] = [];
+  for (const [reason, label] of RISK_LABELS) {
+    if (counts[reason]) rows.push({ reason, label, count: counts[reason] });
+  }
+  for (const [reason, n] of Object.entries(counts)) {
+    if (n && !known.has(reason)) rows.push({ reason, label: reason, count: n });
+  }
+  return rows;
+}
+
 /** The five headline numbers. 触发限流 is sampled at 1 in 10 (stats.js). */
-export function metrics(totals: Counts): Metric[] {
+export function metrics(
+  totals: Counts,
+  reasons?: StatsData["reasons"],
+): Metric[] {
   return [
-    { label: "发出挑战", value: fmt(totals.challenge_issued), hint: "" },
+    {
+      label: "发出挑战",
+      value: fmt(totals.challenge_issued),
+      hint: `其中提高难度 ${fmt(raisedCount(reasons))} 次`,
+    },
     { label: "验证通过", value: fmt(totals.redeem_ok), hint: "" },
     { label: "验证失败", value: fmt(totals.redeem_fail), hint: "" },
     {
@@ -287,7 +336,10 @@ export interface SiteOption {
 export function siteOptions(rows: SiteRow[], selected: string): SiteOption[] {
   const options: SiteOption[] = [{ value: ALL_SITES, label: "全部站点" }];
   for (const row of rows) {
-    options.push({ value: row.site, label: `${row.label}（${kindLabel(row.kind)}）` });
+    options.push({
+      value: row.site,
+      label: `${row.label}（${kindLabel(row.kind)}）`,
+    });
   }
   if (selected && !rows.some((row) => row.site === selected)) {
     options.push({ value: selected, label: selected });
@@ -308,6 +360,7 @@ export function bucketHeader(bucket: StatsData["bucket"]): string {
 export const STATS_NOTES = {
   empty: "所选时间范围内没有记录。",
   reasonsEmpty: "所选时间范围内没有失败或限流记录。",
+  riskEmpty: "所选时间范围内未提高难度。",
   bySiteEmpty: "暂无站点数据。",
   chartHint:
     "将指针悬停于柱上，或聚焦图表后使用左右方向键，可查看各时段的数值。",

@@ -88,16 +88,44 @@ export type GateField = "host" | "upstream" | "exemptPaths";
 export const GATE_ERROR_RULES: ReadonlyArray<
   readonly [needle: string, field: GateField, text: string]
 > = [
-  ["this service's own host", "host", "该域名是本服务自身的域名，不能设为网关域名。"],
-  ["host must be a bare hostname", "host", "域名格式无效，应为小写主机名，不含协议、端口与路径。"],
+  [
+    "this service's own host",
+    "host",
+    "该域名是本服务自身的域名，不能设为网关域名。",
+  ],
+  [
+    "host must be a bare hostname",
+    "host",
+    "域名格式无效，应为小写主机名，不含协议、端口与路径。",
+  ],
   ["gate hosts", "host", "网关域名数量已达上限，请先删除不再使用的域名。"],
-  ["upstream must not point at the host itself", "upstream", "源站地址不能指向该域名本身。"],
+  [
+    "upstream must not point at the host itself",
+    "upstream",
+    "源站地址不能指向该域名本身。",
+  ],
   ["upstream must use https", "upstream", "源站地址必须使用 https:// 协议。"],
-  ["upstream must be a bare origin", "upstream", "源站地址不能包含路径、查询参数或片段。"],
+  [
+    "upstream must be a bare origin",
+    "upstream",
+    "源站地址不能包含路径、查询参数或片段。",
+  ],
   ["upstream", "upstream", "源站地址格式无效，应为以 https:// 开头的地址。"],
-  ["exempt path must not be /", "exemptPaths", "放行路径不能为 /，否则整个域名都将免于验证。"],
-  ["exempt path must not be under", "exemptPaths", "放行路径不能位于 /__gate/ 之下。"],
-  ["must not contain", "exemptPaths", "放行路径不能包含 ?、#、;、..、空白字符或编码后的分隔符（如 %2F）。"],
+  [
+    "exempt path must not be /",
+    "exemptPaths",
+    "放行路径不能为 /，否则整个域名都将免于验证。",
+  ],
+  [
+    "exempt path must not be under",
+    "exemptPaths",
+    "放行路径不能位于 /__gate/ 之下。",
+  ],
+  [
+    "must not contain",
+    "exemptPaths",
+    "放行路径不能包含 ?、#、;、..、空白字符或编码后的分隔符（如 %2F）。",
+  ],
   ["characters", "exemptPaths", "每条放行路径不能超过 256 个字符。"],
   ["starting with /", "exemptPaths", "每条放行路径都必须以 / 开头。"],
   ["exempt paths", "exemptPaths", "放行路径最多 50 条。"],
@@ -121,7 +149,8 @@ export function describeGateError(
   error: ErrorLike,
   creating: boolean,
 ): { text: string; field: GateField | null; detail: string } {
-  const rule = error.status === 400 ? gateErrorRule(error.message || "") : undefined;
+  const rule =
+    error.status === 400 ? gateErrorRule(error.message || "") : undefined;
   const messages = {
     400: rule ? rule[2] : "提交的内容未通过校验。",
     404: "该域名不存在，可能已被删除。",
@@ -130,7 +159,11 @@ export function describeGateError(
       : "该域名由部署配置定义，无法在后台修改。",
   };
   const text = describeError(error, messages);
-  const field = rule ? rule[1] : creating && error.status === 409 ? "host" : null;
+  const field = rule
+    ? rule[1]
+    : creating && error.status === 409
+      ? "host"
+      : null;
   const detail = field ? messages[error.status as 400 | 409] : text;
   return { text, field, detail };
 }
@@ -140,6 +173,7 @@ export type SiteField =
   | "origins"
   | "challengeDifficulty"
   | "challengeCount"
+  | "hashwxDifficulty"
   | "tokenTtlMinutes";
 
 /**
@@ -151,16 +185,46 @@ export const SITE_ERROR_RULES: ReadonlyArray<
   readonly [needle: string, field: SiteField | null, text: string]
 > = [
   ["name must be", "name", "名称须为 1 至 80 个字符。"],
-  ["not a url", "origins", "允许的域名中有无法识别的地址，每行应为一个以协议开头的地址（例如 https://example.com）。"],
-  ["must be a bare origin", "origins", "允许的域名只能包含协议与域名（可带端口），不能包含路径、查询参数或片段。"],
-  ["must use https", "origins", "允许的域名必须使用 https:// 协议；仅 localhost、127.0.0.1 与 [::1] 可使用 http://。"],
+  [
+    "not a url",
+    "origins",
+    "允许的域名中有无法识别的地址，每行应为一个以协议开头的地址（例如 https://example.com）。",
+  ],
+  [
+    "must be a bare origin",
+    "origins",
+    "允许的域名只能包含协议与域名（可带端口），不能包含路径、查询参数或片段。",
+  ],
+  [
+    "must use https",
+    "origins",
+    "允许的域名必须使用 https:// 协议；仅 localhost、127.0.0.1 与 [::1] 可使用 http://。",
+  ],
   ["at least one origin", "origins", "至少需要填写一个允许的域名。"],
   ["origins must be", "origins", "允许的域名格式无效。"],
   ["origins", "origins", "允许的域名最多 50 个。"],
   ["sites", null, "站点数量已达上限，请先删除不再使用的站点。"],
-  ["challengedifficulty", "challengeDifficulty", "难度须为 1 至 16 之间的整数。"],
-  ["challengecount", "challengeCount", "题目数量须为 1 至 1000 之间的整数。"],
-  ["tokenttlms", "tokenTtlMinutes", "token 有效期须为 1 至 1440 分钟之间的整数。"],
+  [
+    "challengedifficulty",
+    "challengeDifficulty",
+    "SHA-256 难度须为 1 至 16 之间的整数。",
+  ],
+  [
+    "challengecount",
+    "challengeCount",
+    "SHA-256 题目数量须为 1 至 1000 之间的整数。",
+  ],
+  ["challengesize", null, "SHA-256 题目长度须为 1 至 256 之间的整数。"],
+  [
+    "hashwxdifficulty",
+    "hashwxDifficulty",
+    "HashWX 难度须为 1 至 1000000000 之间的整数。",
+  ],
+  [
+    "tokenttlms",
+    "tokenTtlMinutes",
+    "token 有效期须介于 1 秒与 1440 分钟之间。",
+  ],
 ];
 
 export function siteErrorRule(message: string) {
@@ -178,7 +242,8 @@ export function describeSiteError(error: ErrorLike): {
   text: string;
   field: SiteField | null;
 } {
-  const rule = error.status === 400 ? siteErrorRule(error.message || "") : undefined;
+  const rule =
+    error.status === 400 ? siteErrorRule(error.message || "") : undefined;
   if (rule) return { text: rule[2], field: rule[1] };
   if (error.status === 404) {
     return { text: "该站点不存在，可能已被删除。", field: null };

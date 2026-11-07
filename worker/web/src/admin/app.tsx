@@ -12,20 +12,21 @@ import { useEffect, useRef, useState } from "react";
 
 import { usePageConfig } from "../shared/page-config";
 import { useThemeToggle } from "../shared/theme";
-import { setUnauthenticatedHandler } from "./api";
+import { api, isUnauthenticated, setUnauthenticatedHandler } from "./api";
 import { finishSignIn } from "./callback";
 import type { AdminConfig } from "./config";
 import {
   BOOT_FAILED,
   SESSION_EXPIRED,
   SIGNED_OUT,
+  describeError,
   loginErrorText,
 } from "./errors";
 import { GateView } from "./gate-view";
 import { LogoutIcon, MarkIcon, MoonIcon, SunIcon } from "./icons";
 import { SitesView } from "./sites-view";
 import { StatsView } from "./stats-view";
-import { Notice } from "./ui";
+import { Notice, useToast } from "./ui";
 
 /**
  * The console bundle: `/admin` (sign-in panel or the three tabs) and
@@ -72,7 +73,8 @@ function AdminTopBar({
               <MarkIcon />
             </span>
             <span>
-              Priestess Verification <span className="pv-brand__sub">· 后台</span>
+              Priestess Verification{" "}
+              <span className="pv-brand__sub">· 后台</span>
             </span>
           </a>
         </TopBar.Title>
@@ -164,13 +166,15 @@ function ConsoleTabs() {
 
 function Console() {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
+  const toast = useToast();
 
   useEffect(() => {
     setUnauthenticatedHandler(() =>
       setPhase({ kind: "login", message: SESSION_EXPIRED }),
     );
     const error = new URLSearchParams(location.search).get("error");
-    if (error) history.replaceState(null, "", location.pathname + location.hash);
+    if (error)
+      history.replaceState(null, "", location.pathname + location.hash);
     (async () => {
       const res = await fetch("/admin/api/me", { credentials: "same-origin" });
       if (!res.ok) {
@@ -182,15 +186,17 @@ function Console() {
     })().catch(() => setPhase({ kind: "login", message: BOOT_FAILED }));
   }, []);
 
+  // Only a confirmed logout leaves the console: on failure the session may
+  // still be valid, so the console stays and says so.
   async function signOut() {
     try {
-      await fetch("/admin/api/logout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-        credentials: "same-origin",
-      });
-    } catch {}
+      await api("/logout", { method: "POST" });
+    } catch (error) {
+      if (!isUnauthenticated(error)) {
+        toast(`退出失败，当前登录状态未改变：${describeError(error as Error)}`);
+      }
+      return;
+    }
     setPhase({ kind: "login", message: SIGNED_OUT });
   }
 
@@ -228,7 +234,11 @@ function Callback() {
     <>
       <AdminTopBar user={null} themeToggle={false} onSignOut={() => {}} />
       <main className="pv-main">
-        <section className="pv-login" aria-labelledby="login-title" aria-busy="true">
+        <section
+          className="pv-login"
+          aria-labelledby="login-title"
+          aria-busy="true"
+        >
           <h1 className="pv-login__title" id="login-title">
             正在登录…
           </h1>

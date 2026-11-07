@@ -27,12 +27,12 @@ import {
   isEmpty,
   metrics,
   periodText,
+  riskRows,
   siteOptions,
   statsQuery,
 } from "./stats";
 import { BySiteTable, ReasonsTable, TrendChart } from "./tables";
 import { Notice, PageHead } from "./ui";
-
 
 function Section({
   id,
@@ -65,10 +65,34 @@ function Counts({
   return (
     <List.Group header={title} className="pv-counts">
       {items.map(([event, label]) => (
-        <List.Row key={event} detail={<NumberRoll value={fmt(totals[event])} />}>
+        <List.Row
+          key={event}
+          detail={<NumberRoll value={fmt(totals[event])} />}
+        >
           {label}
         </List.Row>
       ))}
+    </List.Group>
+  );
+}
+
+/** 提高难度: challenges issued with a raised difficulty, by reason. */
+function RiskCounts({ reasons }: { reasons: StatsData["reasons"] }) {
+  const rows = riskRows(reasons);
+  return (
+    <List.Group header="提高难度" className="pv-counts">
+      {rows.length ? (
+        rows.map((row) => (
+          <List.Row
+            key={row.reason}
+            detail={<NumberRoll value={fmt(row.count)} />}
+          >
+            {row.label}
+          </List.Row>
+        ))
+      ) : (
+        <List.Row>{STATS_NOTES.riskEmpty}</List.Row>
+      )}
     </List.Group>
   );
 }
@@ -89,6 +113,7 @@ function Detail({ data }: { data: StatsData }) {
           totals={data.totals}
         />
         <Counts title="验证网关" items={GATE_COUNTS} totals={data.totals} />
+        <RiskCounts reasons={data.reasons} />
       </div>
       <Section id="stats-sites-title" title="各站点">
         <BySiteTable data={data} />
@@ -136,7 +161,9 @@ export function StatsView({ active }: { active: boolean }) {
     <>
       <PageHead
         title="统计"
-        lede={data ? periodText(data, browserOffset(data.to)) : PERIOD_PLACEHOLDER}
+        lede={
+          data ? periodText(data, browserOffset(data.to)) : PERIOD_PLACEHOLDER
+        }
         action={
           <Button icon={<RefreshIcon />} onClick={() => load()}>
             刷新
@@ -161,7 +188,9 @@ export function StatsView({ active }: { active: boolean }) {
           <Select.Root
             items={options}
             value={site}
-            onValueChange={(value) => setSite((value as string | null) ?? ALL_SITES)}
+            onValueChange={(value) =>
+              setSite((value as string | null) ?? ALL_SITES)
+            }
           >
             <Select.Trigger className="pv-select">
               <Select.Value />
@@ -184,7 +213,7 @@ export function StatsView({ active }: { active: boolean }) {
       {data ? (
         <div className="pv-stats" aria-busy={busy}>
           <ul className="pv-metrics" aria-label="主要指标">
-            {metrics(data.totals).map((metric) => (
+            {metrics(data.totals, data.reasons).map((metric) => (
               <li className="pv-metric" key={metric.label}>
                 <span className="pv-metric__label">{metric.label}</span>
                 <span className="pv-metric__value">

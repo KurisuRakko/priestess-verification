@@ -16,9 +16,12 @@ import type { SiteField } from "./errors";
 import type { SiteAction } from "./errors";
 import { describeSiteError, siteFailureText } from "./errors";
 import { ChevronIcon, PlusIcon } from "./icons";
-import type { Site, SiteForm } from "./sites";
+import type { Site, SiteDefaults, SiteForm, SitesResponse } from "./sites";
 import {
   describeSettings,
+  minutesText,
+  powKinds,
+  protocolNote,
   secretWarning,
   siteBody,
   siteForm,
@@ -33,6 +36,10 @@ import {
   useToast,
 } from "./ui";
 
+/** A default as an input placeholder ("" while the defaults are loading). */
+const placeholder = (value: number | undefined) =>
+  value == null ? undefined : String(value);
+
 /** The secret dialog: a fresh secret (shown once) or the snippets only. */
 interface SecretState {
   site: Site;
@@ -41,6 +48,7 @@ interface SecretState {
 
 function SiteRow({
   site,
+  protocol,
   onSnippets,
   onEdit,
   onToggle,
@@ -48,13 +56,14 @@ function SiteRow({
   onDelete,
 }: {
   site: Site;
+  protocol: string;
   onSnippets: () => void;
   onEdit: () => void;
   onToggle: () => void;
   onRotate: () => void;
   onDelete: () => void;
 }) {
-  const settings = describeSettings(site.settings);
+  const settings = describeSettings(site.settings, protocol);
   return (
     <List.Row className="pv-site" data-disabled={site.enabled ? undefined : ""}>
       <div className="pv-site__body">
@@ -92,43 +101,53 @@ function SiteRow({
 function SiteDialog({
   open,
   site,
+  defaults,
+  protocol,
   onOpenChange,
   onSaved,
 }: {
   open: boolean;
   site: Site | null;
+  defaults: SiteDefaults | null;
+  protocol: string;
   onOpenChange: (open: boolean) => void;
   onSaved: (result: { site: Site; secret: string | null }) => void;
 }) {
-  const [form, setForm] = useState<SiteForm>(() => siteForm(site));
+  const [form, setForm] = useState<SiteForm>(() =>
+    siteForm(site, defaults ?? undefined),
+  );
+  const kinds = powKinds(protocol);
   const [error, setError] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [invalid, setInvalid] = useState<{ field: SiteField; text: string } | null>(
-    null,
-  );
+  const [invalid, setInvalid] = useState<{
+    field: SiteField;
+    text: string;
+  } | null>(null);
   const controls = {
     name: useRef<HTMLInputElement>(null),
     origins: useRef<HTMLTextAreaElement>(null),
     challengeDifficulty: useRef<HTMLInputElement>(null),
     challengeCount: useRef<HTMLInputElement>(null),
+    hashwxDifficulty: useRef<HTMLInputElement>(null),
     tokenTtlMinutes: useRef<HTMLInputElement>(null),
   };
 
   useEffect(() => {
     if (!open) return;
-    setForm(siteForm(site));
+    setForm(siteForm(site, defaults ?? undefined));
     setError("");
     setInvalid(null);
     setAdvanced(false);
-  }, [open, site]);
+  }, [open, site, defaults]);
 
   // The marked field takes focus once its error is on screen.
   useEffect(() => {
     if (invalid) controls[invalid.field].current?.focus();
   }, [invalid]);
 
-  const set = <K extends keyof SiteForm>(key: K) =>
+  const set =
+    <K extends keyof SiteForm>(key: K) =>
     (value: SiteForm[K]) => {
       setForm((f) => ({ ...f, [key]: value }));
       // Editing the marked field takes its error away.
@@ -142,7 +161,7 @@ function SiteDialog({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const body = siteBody(form);
+    const body = siteBody(form, site, defaults ?? undefined);
     setBusy(true);
     try {
       if (site) {
@@ -219,45 +238,71 @@ function SiteDialog({
               </span>
             </Collapsible.Trigger>
             <Collapsible.Content>
+              <p className="pv-advanced__note">{protocolNote(protocol)}</p>
               <div className="pv-advanced__grid">
-                <Field.Root invalid={invalid?.field === "challengeDifficulty"}>
-                  <Field.Label>难度</Field.Label>
-                  <Field.Control
-              ref={controls.challengeDifficulty}
-                    type="number"
-                    min={1}
-                    max={16}
-                    placeholder="4"
-                    value={form.challengeDifficulty}
-                    onValueChange={set("challengeDifficulty")}
-                  />
-            {fieldError("challengeDifficulty")}
-                </Field.Root>
-                <Field.Root invalid={invalid?.field === "challengeCount"}>
-                  <Field.Label>题目数量</Field.Label>
-                  <Field.Control
-              ref={controls.challengeCount}
-                    type="number"
-                    min={1}
-                    max={1000}
-                    placeholder="50"
-                    value={form.challengeCount}
-                    onValueChange={set("challengeCount")}
-                  />
-            {fieldError("challengeCount")}
-                </Field.Root>
+                {kinds.hashwx ? (
+                  <Field.Root invalid={invalid?.field === "hashwxDifficulty"}>
+                    <Field.Label>HashWX 难度</Field.Label>
+                    <Field.Control
+                      ref={controls.hashwxDifficulty}
+                      type="number"
+                      min={1}
+                      max={1000000000}
+                      placeholder={placeholder(defaults?.hashwxDifficulty)}
+                      value={form.hashwxDifficulty}
+                      onValueChange={set("hashwxDifficulty")}
+                    />
+                    {fieldError("hashwxDifficulty")}
+                    <Field.Description>
+                      每次验证预期计算的哈希总数，耗时与之成正比。
+                    </Field.Description>
+                  </Field.Root>
+                ) : null}
+                {kinds.sha256 ? (
+                  <Field.Root
+                    invalid={invalid?.field === "challengeDifficulty"}
+                  >
+                    <Field.Label>SHA-256 难度</Field.Label>
+                    <Field.Control
+                      ref={controls.challengeDifficulty}
+                      type="number"
+                      min={1}
+                      max={16}
+                      placeholder={placeholder(defaults?.challengeDifficulty)}
+                      value={form.challengeDifficulty}
+                      onValueChange={set("challengeDifficulty")}
+                    />
+                    {fieldError("challengeDifficulty")}
+                  </Field.Root>
+                ) : null}
+                {kinds.sha256 ? (
+                  <Field.Root invalid={invalid?.field === "challengeCount"}>
+                    <Field.Label>SHA-256 题目数量</Field.Label>
+                    <Field.Control
+                      ref={controls.challengeCount}
+                      type="number"
+                      min={1}
+                      max={1000}
+                      placeholder={placeholder(defaults?.challengeCount)}
+                      value={form.challengeCount}
+                      onValueChange={set("challengeCount")}
+                    />
+                    {fieldError("challengeCount")}
+                  </Field.Root>
+                ) : null}
                 <Field.Root invalid={invalid?.field === "tokenTtlMinutes"}>
                   <Field.Label>token 有效期（分钟）</Field.Label>
                   <Field.Control
-              ref={controls.tokenTtlMinutes}
+                    ref={controls.tokenTtlMinutes}
                     type="number"
-                    min={1}
-                    max={1440}
-                    placeholder="20"
+                    step="any"
+                    placeholder={
+                      defaults ? minutesText(defaults.tokenTtlMs) : undefined
+                    }
                     value={form.tokenTtlMinutes}
                     onValueChange={set("tokenTtlMinutes")}
                   />
-            {fieldError("tokenTtlMinutes")}
+                  {fieldError("tokenTtlMinutes")}
                 </Field.Root>
                 <label className="pv-check">
                   <Checkbox.Root
@@ -305,6 +350,10 @@ function SecretDialog({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
+      onOpenChangeComplete={(open) => {
+        // The secret must not outlive the dialog in memory.
+        if (!open) setShown(null);
+      }}
     >
       <Dialog.Popup className="pv-dialog pv-dialog--wide">
         <Dialog.Title>接入信息</Dialog.Title>
@@ -341,6 +390,8 @@ export function SitesView() {
   const toast = useToast();
   const { confirm, dialog } = useConfirm();
   const [sites, setSites] = useState<Site[] | null>(null);
+  const [defaults, setDefaults] = useState<SiteDefaults | null>(null);
+  const [protocol, setProtocol] = useState("legacy");
   // The edited site outlives `editOpen` so the closing dialog keeps its title.
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<Site | null>(null);
@@ -352,8 +403,10 @@ export function SitesView() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api<{ sites: Site[] }>("/sites");
+      const data = await api<SitesResponse>("/sites");
       setSites(data.sites);
+      setDefaults(data.defaults);
+      setProtocol(data.protocol);
     } catch (error) {
       if (!isUnauthenticated(error)) {
         toast(siteFailureText("load", error as Error));
@@ -436,6 +489,7 @@ export function SitesView() {
             <SiteRow
               key={site.siteKey}
               site={site}
+              protocol={protocol}
               onSnippets={() => setSecret({ site, secret: null })}
               onEdit={() => edit(site)}
               onToggle={() => toggle(site)}
@@ -452,6 +506,8 @@ export function SitesView() {
       <SiteDialog
         open={editOpen}
         site={editing}
+        defaults={defaults}
+        protocol={protocol}
         onOpenChange={setEditOpen}
         onSaved={async ({ site, secret: fresh }) => {
           const created = !editing;
