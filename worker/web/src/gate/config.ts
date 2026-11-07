@@ -37,7 +37,12 @@ export async function postJson(
     credentials: "same-origin",
     body: JSON.stringify(body ?? {}),
   });
-  let data: { ok?: boolean; redirect?: string; error?: string } | null = null;
+  let data: {
+    ok?: boolean;
+    redirect?: string;
+    error?: string;
+    reason?: string;
+  } | null = null;
   try {
     data = await res.json();
   } catch {}
