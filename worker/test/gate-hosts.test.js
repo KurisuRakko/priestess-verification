@@ -119,6 +119,17 @@ describe("gate hosts: exempt path matching", () => {
     expect(isExemptPath(["/api/"], "/api/%2e%2e/admin")).toBe(false);
     expect(isExemptPath(["/api/"], "/api/a%5Cb")).toBe(false);
   });
+
+  it("never matches a path with a `;` path parameter, literal or encoded", () => {
+    expect(isExemptPath(["/api/"], "/api/..;/admin")).toBe(false);
+    expect(isExemptPath(["/api/"], "/api/..%3B/admin")).toBe(false);
+    expect(isExemptPath(["/api/"], "/api/..%3b/admin")).toBe(false);
+    expect(isExemptPath(["/api/"], "/api/x;jsessionid=1")).toBe(false);
+    expect(isExemptPath(["/api/"], "/api/x")).toBe(true);
+    expect(new URL("https://h.example/api/..;/admin").pathname).toBe(
+      "/api/..;/admin",
+    );
+  });
 });
 
 describe("gate hosts: validation helpers", () => {

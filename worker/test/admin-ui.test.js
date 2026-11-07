@@ -151,3 +151,48 @@ describe("admin console gate errors", () => {
     expect(rule[2]).toBe("源站地址不能包含路径、查询参数或片段。");
   });
 });
+
+/** `periodText` and its helpers from the console script, run as the browser would. */
+function periodTextFn(script) {
+  const pick = (re) => {
+    const match = re.exec(script);
+    expect(match).not.toBeNull();
+    return match[0];
+  };
+  const source = [
+    pick(/const pad2 = .*;/),
+    pick(/function offsetText\(tz\) \{[\s\S]*?\n {2}\}/),
+    pick(/function zonedText\(iso, tz\) \{[\s\S]*?\n {2}\}/),
+    pick(/function periodText\(data, browserTz\) \{[\s\S]*?\n {2}\}/),
+  ].join("\n");
+  return new Function(`${source}\nreturn periodText;`)();
+}
+
+describe("admin console statistics period", () => {
+  const data = {
+    from: "2026-11-05T18:00:00.000Z",
+    to: "2026-11-06T18:00:00.000Z",
+    generatedAt: "2026-11-06T17:42:00.000Z",
+  };
+
+  it("reads the period in the API's tz and says local time when it matches", async () => {
+    const periodText = periodTextFn(clientScript(await consolePage()));
+    expect(periodText({ ...data, tz: 660 }, 660)).toBe(
+      "统计区间：11月6日 05:00 至 11月7日 05:00（本地时间），更新于 11月7日 04:42。",
+    );
+    expect(periodText({ ...data, tz: 0 }, 0)).toBe(
+      "统计区间：11月5日 18:00 至 11月6日 18:00（本地时间），更新于 11月6日 17:42。",
+    );
+  });
+
+  it("names the rounded offset when the browser is in a half-hour zone", async () => {
+    const periodText = periodTextFn(clientScript(await consolePage()));
+    // UTC+5:45 is rounded to UTC+6 by the API.
+    expect(periodText({ ...data, tz: 360 }, 345)).toBe(
+      "统计区间：11月6日 00:00 至 11月7日 00:00（按 UTC+6 统计），更新于 11月6日 23:42。",
+    );
+    expect(periodText({ ...data, tz: -240 }, -210)).toBe(
+      "统计区间：11月5日 14:00 至 11月6日 14:00（按 UTC-4 统计），更新于 11月6日 13:42。",
+    );
+  });
+});

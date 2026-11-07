@@ -474,6 +474,7 @@
     challenge: "获取挑战",
     redeem: "提交结果",
     gate_pass: "网关放行",
+    siteverify: "服务端核验",
   };
   const KIND_LABELS = { site: "站点", gate: "验证网关", default: "旧接口" };
   const REASON_GROUPS = [
@@ -509,11 +510,6 @@
     return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
   }
 
-  function dateTimeText(iso) {
-    const d = new Date(iso);
-    return `${dayText(d)} ${clockText(d)}`;
-  }
-
   // Bucket names: axis ticks are short, tooltips and the table spell it out.
   // Hour buckets are named in the browser's local time (with minutes, so a
   // half-hour zone reads 10:30–11:30). Day buckets follow the API's day
@@ -531,6 +527,30 @@
     if (!long) return clockText(start);
     const end = new Date(start.getTime() + 3_600_000);
     return `${dayText(start)} ${clockText(start)}–${clockText(end)}`;
+  }
+
+  // The period line is read in the API's own offset `data.tz` (minutes east
+  // of UTC, rounded to a whole hour), like the day buckets above, so it names
+  // the same instants the counts cover. When that differs from the browser's
+  // offset (a half-hour zone) the offset used is stated; otherwise the times
+  // are simply the local ones.
+  function offsetText(tz) {
+    if (!tz) return "UTC";
+    const abs = Math.abs(tz);
+    const minutes = abs % 60;
+    const hours = (abs - minutes) / 60;
+    return `UTC${tz < 0 ? "-" : "+"}${hours}${minutes ? `:${pad2(minutes)}` : ""}`;
+  }
+
+  function zonedText(iso, tz) {
+    const d = new Date(Date.parse(iso) + (tz || 0) * 60_000);
+    return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日 ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+  }
+
+  function periodText(data, browserTz) {
+    const tz = data.tz || 0;
+    const zone = tz === browserTz ? "本地时间" : `按 ${offsetText(tz)} 统计`;
+    return `统计区间：${zonedText(data.from, tz)} 至 ${zonedText(data.to, tz)}（${zone}），更新于 ${zonedText(data.generatedAt, tz)}。`;
   }
 
   const stats = { range: "24h", site: "", seq: 0, data: null, active: -1 };
@@ -582,8 +602,10 @@
     $("stats-body").hidden = false;
     syncSiteOptions(data.bySite || []);
     const totals = data.totals;
-    $("stats-period").textContent =
-      `统计区间：${dateTimeText(data.from)} 至 ${dateTimeText(data.to)}（本地时间），更新于 ${dateTimeText(data.generatedAt)}。`;
+    $("stats-period").textContent = periodText(
+      data,
+      -new Date(data.to).getTimezoneOffset(),
+    );
 
     const metrics = [
       ["发出挑战", fmt(totals.challenge_issued), ""],

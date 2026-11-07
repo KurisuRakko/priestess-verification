@@ -89,7 +89,7 @@ The console's statistics tab (`/admin#stats`) reads counters kept in the `StatsS
 | `gate_shown` | |
 | `gate_pass` | |
 | `gate_pass_fail` | `token_not_found`, `token_expired`, `bad_request`, `other` |
-| `rate_limited` | `challenge`, `redeem`, `gate_pass` |
+| `rate_limited` | `challenge`, `redeem`, `gate_pass`, `siteverify` |
 
 For `redeem_fail`, `instr_blocked` covers an instrumentation error or a `blockedBy` result, `invalid_token` includes a scope mismatch, `bad_request` covers `invalid_body`, `missing_token`, `missing_solutions` and `invalid_solutions`, and `internal` covers a nonce-store error and a missing `CAP_SECRET`. For `rate_limited`, the reason is the entry point that was limited.
 
@@ -149,17 +149,18 @@ With a session, invalid parameters answer `400` with `{ "error": "<short message
 
 ### Rate limiting
 
-Two rate-limit bindings are configured in `wrangler.jsonc`; `RL_REDEEM` serves both redeem and gate-pass checks under different key prefixes:
+Three rate-limit bindings are configured in `wrangler.jsonc`; `RL_REDEEM` serves both redeem and gate-pass checks under different key prefixes:
 
 | Binding | Limit | Key prefix | Entry points |
 | --- | --- | --- | --- |
 | `RL_CHALLENGE` | 60 requests per 60 seconds | `challenge:` | `/challenge`, `/demo/challenge`, `/<siteKey>/challenge`, `/__gate/challenge` |
 | `RL_REDEEM` | 30 requests per 60 seconds | `redeem:` | `/redeem`, `/demo/redeem`, `/<siteKey>/redeem`, `/__gate/redeem` |
 | `RL_REDEEM` | 30 requests per 60 seconds | `gate_pass:` | `/__gate/pass` |
+| `RL_SITEVERIFY` | 600 requests per 60 seconds | `siteverify:` | `/siteverify`, `/demo/siteverify`, `/<siteKey>/siteverify` |
 
 The key is `<kind>:<CF-Connecting-IP>`. For rate limiting, the IP exists only in that key for the duration of the limit check; the Worker does not persist it. Limits are counted per Cloudflare location and are approximate by design.
 
-The check runs before the rate-limited handler's Durable Object work. For a registered site's route it runs before that site's registry lookup, and for redeem and gate-pass entries it runs before the token store is touched. If the binding is missing, the `CF-Connecting-IP` header is missing, or the binding throws, the request is allowed; rate limiting must not take verification down.
+The check runs before the rate-limited handler's Durable Object work. For a registered site's route it runs before that site's registry lookup, and for redeem, siteverify and gate-pass entries it runs before the token store is touched. If the binding is missing, the `CF-Connecting-IP` header is missing, or the binding throws, the request is allowed; rate limiting must not take verification down.
 
 A limited request answers HTTP `429` with `Retry-After: 60` and the body
 
@@ -167,7 +168,7 @@ A limited request answers HTTP `429` with `Retry-After: 60` and the body
 { "success": false, "reason": "rate_limited", "error": "Too many requests" }
 ```
 
-Where the entry point sends CORS headers, the 429 response carries them as well. A limited request for an unknown site key answers `429` but is not counted, so random site keys cannot add statistics rows. The `siteverify` endpoints are not rate limited.
+Where the entry point sends CORS headers, the 429 response carries them as well; the `siteverify` endpoints send none. A limited request for an unknown site key answers `429` but is not counted, so random site keys cannot add statistics rows.
 
 ### Local development
 
@@ -283,7 +284,7 @@ Either way, route the hostname to this Worker, e.g. `"routes": [{ "pattern": "ex
 
 An admin host is validated on write: `host` is a lowercase bare hostname without a port, must not be one of the Worker's own hosts, and `upstream` must be a bare `https:` origin whose hostname differs from `host`; the table holds at most 200 hosts. A host cannot live in both sources: `GATE_UPSTREAMS` wins at request time, and the admin API answers `409` when asked to create, update or delete a configured host. A duplicate admin host also answers `409`.
 
-An exempt path is proxied to the upstream without a pass check. An entry ending in `/` matches as a prefix (`/api/` covers `/api/x`); any other entry matches exactly, or matches a path that starts with the entry followed by `/` (`/robots.txt` covers `/robots.txt` and `/robots.txt/x`, not `/robots.txtx`). The pathname comes from the parsed request URL, so `..` segments are already resolved; a pathname that still contains `%2f`, `%5c` or `%2e`, in either case, never matches. An admin host accepts at most 50 exempt paths, each starting with `/`, at most 256 characters, with no `?`, `#`, `..` or whitespace, not `/`, not under `/__gate/`, and duplicates are removed. When `enabled` is `false`, every request outside `/__gate/` is proxied to the upstream without a pass check; `/__gate/*` is still answered by the Worker.
+An exempt path is proxied to the upstream without a pass check. An entry ending in `/` matches as a prefix (`/api/` covers `/api/x`); any other entry matches exactly, or matches a path that starts with the entry followed by `/` (`/robots.txt` covers `/robots.txt` and `/robots.txt/x`, not `/robots.txtx`). The pathname comes from the parsed request URL, so `..` segments are already resolved; a pathname that still contains `%2f`, `%5c`, `%2e` or `%3b`, in either case, or a literal `;`, never matches, because origins such as Tomcat or Spring normalise `..;` to `..`. An admin host accepts at most 50 exempt paths, each starting with `/`, at most 256 characters, with no `?`, `#`, `..` or whitespace, not `/`, not under `/__gate/`, and duplicates are removed. When `enabled` is `false`, every request outside `/__gate/` is proxied to the upstream without a pass check; `/__gate/*` is still answered by the Worker.
 
 Each isolate caches the complete admin host table and refreshes it after 60 seconds; a write through the admin API drops the snapshot in the isolate that handled it immediately, so other isolates normally pick the change up within 60 seconds. If a refresh fails while an older snapshot exists, that snapshot keeps serving and the read is retried after 5 seconds (`GATE_RETRY_MS` in `worker/src/gate-hosts.js`). `selfHosts` is derived from the hostnames in `ALLOWED_ORIGINS`, minus any host that `GATE_UPSTREAMS` gates; these are the hostnames on which the Worker answers as itself. Requests to a self host never read the gate host table, and the admin API rejects an attempt to add one as a gate host.
 

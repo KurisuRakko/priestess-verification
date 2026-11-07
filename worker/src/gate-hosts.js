@@ -131,7 +131,7 @@ export function validateEnabled(input) {
 
 // ---- matching -----------------------------------------------------------
 
-const ENCODED_SEPARATOR = /%(2f|5c|2e)/i;
+const UNSAFE_PATH = /%(2f|5c|2e|3b)|;/i;
 
 /**
  * Whether `pathname` is let through without a pass: an entry ending in `/`
@@ -141,10 +141,12 @@ const ENCODED_SEPARATOR = /%(2f|5c|2e)/i;
  *
  * `pathname` is the parsed URL's, so `..` segments are already resolved. A
  * path still holding an encoded `/`, `\` or `.` never matches: an origin that
- * decodes those could otherwise read `/api/..%2Fadmin` as `/admin`.
+ * decodes those could otherwise read `/api/..%2Fadmin` as `/admin`. Nor does
+ * one holding `;` or `%3b`: Tomcat/Spring-style origins strip path parameters
+ * and read `/api/..;/admin` as `/api/../admin`, i.e. `/admin`.
  */
 export function isExemptPath(exemptPaths, pathname) {
-  if (ENCODED_SEPARATOR.test(pathname)) return false;
+  if (UNSAFE_PATH.test(pathname)) return false;
   for (const entry of exemptPaths) {
     if (entry.endsWith("/")) {
       if (pathname.startsWith(entry)) return true;

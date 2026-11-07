@@ -87,16 +87,17 @@ export function recordEvent(
 /**
  * Per-IP rate limit for one entry point, checked before any Durable Object is
  * touched. `kind` is `challenge` (RL_CHALLENGE), `redeem` or `gate_pass`
- * (both RL_REDEEM); the key is `<kind>:<CF-Connecting-IP>`. Without the
- * binding or the header (local development, tests) the request is let through,
- * and so is a binding error: rate limiting must not take verification down.
+ * (both RL_REDEEM), or `siteverify` (RL_SITEVERIFY); the key is
+ * `<kind>:<CF-Connecting-IP>`. Without the binding or the header (local
+ * development, tests) the request is let through, and so is a binding error:
+ * rate limiting must not take verification down.
  *
  * Returns `true` when the request must be rejected. With a `site` the
  * rejection is also counted (`recordRateLimited`); callers that only learn the
  * site afterwards pass none and count it themselves.
  */
 export async function isRateLimited(env, ctx, request, kind, site) {
-  const binding = kind === "challenge" ? env.RL_CHALLENGE : env.RL_REDEEM;
+  const binding = rateLimitBinding(env, kind);
   const ip = request.headers.get("CF-Connecting-IP");
   if (typeof binding?.limit !== "function" || !ip) return false;
   let success;
@@ -109,6 +110,12 @@ export async function isRateLimited(env, ctx, request, kind, site) {
   if (success) return false;
   if (site) recordRateLimited(env, ctx, site, kind);
   return true;
+}
+
+function rateLimitBinding(env, kind) {
+  if (kind === "challenge") return env.RL_CHALLENGE;
+  if (kind === "siteverify") return env.RL_SITEVERIFY;
+  return env.RL_REDEEM;
 }
 
 /**

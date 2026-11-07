@@ -138,16 +138,21 @@ function fakeLimiter(success) {
   };
 }
 
-/** A TOKEN_STORE double that counts how often it is reached. */
-function countingTokenStore() {
+/** A Durable Object namespace double that counts how often it is reached. */
+function countingNamespace(namespace) {
   const store = {
     calls: 0,
     getByName(name) {
       store.calls++;
-      return env.TOKEN_STORE.getByName(name);
+      return namespace.getByName(name);
     },
   };
   return store;
+}
+
+/** A TOKEN_STORE double that counts how often it is reached. */
+function countingTokenStore() {
+  return countingNamespace(env.TOKEN_STORE);
 }
 
 afterEach(() => {
@@ -530,6 +535,162 @@ describe("rate limiting", () => {
   it("is configured from wrangler.jsonc", () => {
     expect(typeof env.RL_CHALLENGE?.limit).toBe("function");
     expect(typeof env.RL_REDEEM?.limit).toBe("function");
+    expect(typeof env.RL_SITEVERIFY?.limit).toBe("function");
+  });
+});
+
+describe("rate limiting: siteverify", () => {
+  const IP = { "CF-Connecting-IP": "203.0.113.9" };
+  const LIMITED_BODY = {
+    success: false,
+    reason: "rate_limited",
+    error: "Too many requests",
+  };
+
+  /**
+   * A SITE_REGISTRY double that counts registry reads (`listSites` RPCs);
+   * taking a stub is free, so the warm site snapshot still costs nothing.
+   */
+  function countingRegistry() {
+    const registry = {
+      calls: 0,
+      getByName(name) {
+        const stub = env.SITE_REGISTRY.getByName(name);
+        return {
+          listSites() {
+            registry.calls++;
+            return stub.listSites();
+          },
+        };
+      },
+    };
+    return registry;
+  }
+
+  /** Doubles for every Durable Object a siteverify could reach. */
+  function counters() {
+    return {
+      TOKEN_STORE: countingNamespace(env.TOKEN_STORE),
+      SITE_REGISTRY: countingRegistry(),
+      STATS_STORE: countingNamespace(env.STATS_STORE),
+    };
+  }
+
+  function callsOf(doubles) {
+    return Object.values(doubles).map((store) => store.calls);
+  }
+
+  async function expectLimited(res, limiter) {
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    expect(await res.json()).toEqual(LIMITED_BODY);
+    expect(limiter.keys).toEqual(["siteverify:203.0.113.9"]);
+  }
+
+  it("limits /siteverify before any Durable Object is reached", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const doubles = counters();
+    const limiter = fakeLimiter(false);
+    const res = await postJson(`${ORIGIN}/siteverify`, {}, IP, {
+      RL_SITEVERIFY: limiter,
+      ...doubles,
+    });
+    await expectLimited(res, limiter);
+    expect(callsOf(doubles)).toEqual([0, 0, 0]);
+  });
+
+  it("limits /demo/siteverify before any Durable Object is reached", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const doubles = counters();
+    const limiter = fakeLimiter(false);
+    const res = await postJson(
+      `${ORIGIN}/demo/siteverify`,
+      { response: "abc:def" },
+      { Origin: ORIGIN, "Sec-Fetch-Site": "same-origin", ...IP },
+      { RL_SITEVERIFY: limiter, ...doubles },
+    );
+    await expectLimited(res, limiter);
+    expect(callsOf(doubles)).toEqual([0, 0, 0]);
+  });
+
+  it("limits a registered site's siteverify before its tokens or registry are read", async () => {
+    const { siteKey, secret } = await createSite();
+    // Warm the per-isolate site snapshot, as live traffic would.
+    await postJson(`${ORIGIN}/${siteKey}/siteverify`, {});
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const doubles = counters();
+    const limiter = fakeLimiter(false);
+    const res = await postJson(
+      `${ORIGIN}/${siteKey}/siteverify`,
+      { secret, response: "abc:def" },
+      IP,
+      { RL_SITEVERIFY: limiter, ...doubles },
+    );
+    await expectLimited(res, limiter);
+    expect(callsOf(doubles)).toEqual([0, 0, 0]);
+  });
+
+  it("samples limited siteverifies as rate_limited/siteverify", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const before = (await countsFor("default"))["rate_limited/siteverify"] ?? 0;
+    for (const path of ["/siteverify", "/demo/siteverify"]) {
+      const res = await postJson(`${ORIGIN}${path}`, {}, IP, {
+        RL_SITEVERIFY: fakeLimiter(false),
+      });
+      expect(res.status).toBe(429);
+    }
+    const after = (await countsFor("default"))["rate_limited/siteverify"] ?? 0;
+    expect(after - before).toBe(20);
+
+    const { siteKey } = await createSite();
+    const res = await postJson(`${ORIGIN}/${siteKey}/siteverify`, {}, IP, {
+      RL_SITEVERIFY: fakeLimiter(false),
+    });
+    expect(res.status).toBe(429);
+    expect(await countsFor(siteKey)).toEqual({ "rate_limited/siteverify": 10 });
+
+    const unknown = randomHex(5);
+    const res2 = await postJson(`${ORIGIN}/${unknown}/siteverify`, {}, IP, {
+      RL_SITEVERIFY: fakeLimiter(false),
+    });
+    expect(res2.status).toBe(429);
+    expect(await countsFor(unknown)).toEqual({});
+  });
+
+  it("verifies as before under the limit", async () => {
+    const limiter = fakeLimiter(true);
+    const extra = { RL_SITEVERIFY: limiter };
+    const token = await mintToken(`${ORIGIN}/`);
+    const ok = await postJson(
+      `${ORIGIN}/siteverify`,
+      { secret: SITEVERIFY_SECRET, response: token },
+      IP,
+      extra,
+    );
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).success).toBe(true);
+
+    const bad = await postJson(`${ORIGIN}/siteverify`, {}, IP, extra);
+    expect(bad.status).toBe(400);
+
+    const demo = await postJson(
+      `${ORIGIN}/demo/siteverify`,
+      { response: "abc:def" },
+      { Origin: ORIGIN, "Sec-Fetch-Site": "same-origin", ...IP },
+      extra,
+    );
+    expect(demo.status).not.toBe(429);
+
+    const { siteKey } = await createSite();
+    const site = await postJson(
+      `${ORIGIN}/${siteKey}/siteverify`,
+      {},
+      IP,
+      extra,
+    );
+    expect(site.status).not.toBe(429);
+    expect(limiter.keys).toEqual(Array(4).fill("siteverify:203.0.113.9"));
   });
 });
 

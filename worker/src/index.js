@@ -22,9 +22,10 @@
  *   POST /<siteKey>/redeem      a registered site's redemption
  *   POST /<siteKey>/siteverify  a registered site's validation (site secret, no CORS)
  *
- * Every challenge, redeem and gate-pass entry point is rate limited per IP
- * (`RL_CHALLENGE` / `RL_REDEEM`, see `stats.js`) before any Durable Object is
- * touched, and every outcome is counted in `StatsStore` (`recordEvent`).
+ * Every challenge, redeem, siteverify and gate-pass entry point is rate
+ * limited per IP (`RL_CHALLENGE` / `RL_REDEEM` / `RL_SITEVERIFY`, see
+ * `stats.js`) before any Durable Object is touched, and every outcome is
+ * counted in `StatsStore` (`recordEvent`).
  *   *    /admin…               admin console, Priestess sign-in (see admin/index.js)
  *
  * Server-side gate (`gate.js`), checked before every route above:
@@ -214,10 +215,20 @@ export default {
       }
 
       if (url.pathname === "/siteverify" && request.method === "POST") {
+        if (
+          await isRateLimited(env, ctx, request, "siteverify", DEFAULT_SITE)
+        ) {
+          return rateLimitedResponse();
+        }
         return await handleSiteverify(request, env, config, stats);
       }
 
       if (url.pathname === "/demo/siteverify" && request.method === "POST") {
+        if (
+          await isRateLimited(env, ctx, request, "siteverify", DEFAULT_SITE)
+        ) {
+          return rateLimitedResponse();
+        }
         return await handleDemoSiteverify(request, env, config, stats);
       }
     } catch (error) {
@@ -239,8 +250,9 @@ export default {
  *
  * The rate limit is checked before the registry is read. A rejected request
  * still looks the site up (the per-isolate snapshot, so a flood costs no extra
- * registry reads) for its CORS headers and statistics: an unknown site gets a
- * bare 429 and is not counted, so random site keys cannot add rows.
+ * registry reads) for its CORS headers (none for siteverify) and statistics:
+ * an unknown site gets a bare 429 and is not counted, so random site keys
+ * cannot add rows.
  */
 async function handleSiteRequest(
   request,
@@ -249,8 +261,7 @@ async function handleSiteRequest(
   { siteKey, action },
   ctx,
 ) {
-  const limitKind =
-    request.method === "POST" && action !== "siteverify" ? action : null;
+  const limitKind = request.method === "POST" ? action : null;
   const limited =
     limitKind !== null &&
     (await isRateLimited(env, ctx, request, limitKind, null));
@@ -262,7 +273,9 @@ async function handleSiteRequest(
   if (limited) {
     if (!cfg) return rateLimitedResponse({ Vary: "Origin" });
     recordRateLimited(env, ctx, siteKey, limitKind);
-    return rateLimitedResponse(corsHeaders(origin));
+    return rateLimitedResponse(
+      action === "siteverify" ? {} : corsHeaders(origin),
+    );
   }
 
   if (request.method === "OPTIONS") {

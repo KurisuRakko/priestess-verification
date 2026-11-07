@@ -75,6 +75,11 @@
       "name": "RL_REDEEM",
       "namespace_id": "7302",
       "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      "name": "RL_SITEVERIFY",
+      "namespace_id": "7303",
+      "simple": { "limit": 600, "period": 60 }
     }
   ],
   "routes": [{ "pattern": "verify.rakko.cn", "custom_domain": true }],
