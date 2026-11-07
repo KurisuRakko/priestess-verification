@@ -374,6 +374,418 @@ textarea.input {
   text-align: center;
 }
 
+/* ── console tabs ────────────────────────────────────────────────────── */
+
+/* rk-tabs (vendor) spreads tabs evenly; the console nav keeps them compact. */
+.view-tabs {
+  margin: -8px 0 24px;
+}
+
+.view-tabs .rk-tab {
+  flex: 0 0 auto;
+  padding: 10px 16px 12px;
+  font-size: 14px;
+}
+
+.view-tabs .rk-tab:focus-visible {
+  outline-offset: -2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.view > .notice {
+  margin-bottom: 16px;
+}
+
+.button.is-small {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.push-start {
+  margin-right: auto;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.muted {
+  color: var(--color-neutral-7);
+}
+
+/* ── statistics ──────────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.range-choice {
+  flex: 0 1 300px;
+}
+
+.select-field {
+  display: flex;
+  flex: 1 1 220px;
+  align-items: center;
+  gap: 8px;
+  max-width: 340px;
+}
+
+.select-field .field-label {
+  flex: none;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.metric {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: 16px;
+}
+
+.metric-label {
+  color: var(--color-neutral-7);
+  font-size: 13px;
+}
+
+.metric-value {
+  color: var(--color-neutral-10);
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-hint {
+  color: var(--color-neutral-7);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#stats-detail {
+  display: grid;
+  gap: 16px;
+}
+
+.panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.panel h2 {
+  color: var(--color-neutral-10);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.panel-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  color: var(--color-neutral-8);
+  font-size: 12px;
+  list-style: none;
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.swatch.is-ok {
+  background: var(--color-success);
+}
+
+.swatch.is-fail {
+  background: var(--color-error);
+}
+
+.chart {
+  position: relative;
+  min-height: 220px;
+  border-radius: 8px;
+}
+
+.chart:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  outline-offset: 4px;
+}
+
+.chart-svg {
+  display: block;
+  overflow: visible;
+}
+
+.chart-grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.chart-axis {
+  stroke: var(--color-neutral-5);
+  stroke-width: 1;
+}
+
+.chart-label {
+  fill: var(--color-neutral-7);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-bar.is-ok {
+  fill: var(--color-success);
+}
+
+.chart-bar.is-fail {
+  fill: var(--color-error);
+}
+
+.chart-band {
+  fill: color-mix(in srgb, var(--color-neutral-10) 7%, transparent);
+}
+
+.chart-hit {
+  fill: transparent;
+}
+
+.chart-tip {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--color-neutral-10);
+  color: var(--color-paper);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+}
+
+.chart-tip-title {
+  margin-bottom: 2px;
+  font-weight: 500;
+}
+
+.chart-tip-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-tip-value {
+  margin-left: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Positioned so the visually hidden header text stays inside the clip. */
+.table-scroll {
+  position: relative;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table thead th {
+  color: var(--color-neutral-7);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.table tbody th {
+  color: var(--color-neutral-10);
+  font-weight: 400;
+}
+
+.table tbody tr:last-child > * {
+  border-bottom: none;
+}
+
+.table .num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+#stats-reasons .num {
+  width: 96px;
+}
+
+.table .group-row th {
+  padding-top: 12px;
+  color: var(--color-neutral-8);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.table tr.is-selected > * {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.table tr.is-disabled th {
+  color: var(--color-neutral-7);
+}
+
+.chart-table summary {
+  margin-top: 4px;
+}
+
+.counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.count dt {
+  color: var(--color-neutral-7);
+  font-size: 12px;
+}
+
+.count dd {
+  margin: 0;
+  color: var(--color-neutral-10);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.footnote {
+  margin-top: 24px;
+  color: var(--color-neutral-7);
+  font-size: 12px;
+}
+
+/* ── verification gate ───────────────────────────────────────────────── */
+
+.notes {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding-left: 18px;
+  color: var(--color-neutral-8);
+  font-size: 13px;
+}
+
+.table-panel {
+  padding: 4px 6px;
+}
+
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.chip.is-on {
+  border-color: color-mix(in srgb, var(--color-success) 50%, transparent);
+  color: var(--color-neutral-9);
+}
+
+.readonly-note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+  color: var(--color-neutral-10);
+  font-size: 13px;
+}
+
+.input[readonly] {
+  color: var(--color-neutral-8);
+  background: color-mix(in srgb, var(--color-neutral-10) 4%, transparent);
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.switch-text {
+  display: grid;
+  gap: 2px;
+}
+
+.rk-switch {
+  padding: 0;
+  border: none;
+  background: none;
+}
+
 /* ── dialogs ─────────────────────────────────────────────────────────── */
 
 .dialog {
@@ -475,6 +887,60 @@ textarea.input {
   color: var(--color-paper);
   font-size: 13px;
   transform: translateX(-50%);
+}
+
+/* Narrow screens: each gate host becomes a stacked card with inline labels. */
+@media (max-width: 560px) {
+  #gate-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  #gate-table,
+  #gate-table tbody,
+  #gate-table tr,
+  #gate-table th,
+  #gate-table td {
+    display: block;
+  }
+
+  #gate-table tr {
+    padding: 12px 8px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  #gate-table tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  #gate-table th,
+  #gate-table td {
+    padding: 2px 0;
+    border: none;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  #gate-table tbody th {
+    margin-bottom: 4px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  #gate-table td[data-label]::before {
+    content: attr(data-label) "：";
+    color: var(--color-neutral-7);
+    font-family: var(--font-sans);
+  }
+
+  #gate-table .row-actions {
+    justify-content: flex-start;
+    margin-top: 8px;
+  }
 }
 
 @media (max-width: 560px) {

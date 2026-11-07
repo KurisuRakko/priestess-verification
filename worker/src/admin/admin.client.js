@@ -5,13 +5,13 @@
   const origin = location.origin;
 
   const ERRORS = {
-    not_an_admin: "这个 Priestess 账号没有后台权限。",
-    app_access_denied: "这个 Priestess 账号没有被授权使用本应用。",
-    invalid_state: "登录状态已失效（可能超过了 10 分钟），请重新登录。",
+    not_an_admin: "该 Priestess 账号没有后台访问权限。",
+    app_access_denied: "该 Priestess 账号未获授权使用本应用。",
+    invalid_state: "登录状态已失效（可能已超过 10 分钟），请重新登录。",
     invalid_login_code: "登录码已失效，请重新登录。",
-    missing_login_code: "没有收到登录码，请重新登录。",
-    priestess_unreachable: "暂时连不上 Priestess，请稍后再试。",
-    network_error: "网络错误，请重新登录。",
+    missing_login_code: "未收到登录码，请重新登录。",
+    priestess_unreachable: "暂时无法连接 Priestess，请稍后重试。",
+    network_error: "网络连接异常，请重新登录。",
   };
 
   // ── theme ───────────────────────────────────────────────────────────
@@ -51,7 +51,11 @@
       showLogin("登录已过期，请重新登录。");
       throw new Error("unauthenticated");
     }
-    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+    if (!res.ok) {
+      const error = new Error(data?.error || `HTTP ${res.status}`);
+      error.status = res.status;
+      throw error;
+    }
     return data;
   }
 
@@ -60,7 +64,13 @@
     for (const [key, value] of Object.entries(props)) {
       if (key === "class") node.className = value;
       else if (key === "text") node.textContent = value;
-      else if (key.startsWith("data-") || key.startsWith("aria-"))
+      else if (
+        key.startsWith("data-") ||
+        key.startsWith("aria-") ||
+        key === "role" ||
+        key === "scope" ||
+        key === "colspan"
+      )
         node.setAttribute(key, value);
       else node[key] = value;
     }
@@ -84,9 +94,9 @@
 
   const SETTING_LABELS = {
     challengeDifficulty: (v) => `难度 ${v}`,
-    challengeCount: (v) => `题目 ${v} 道`,
+    challengeCount: (v) => `题目数量 ${v}`,
     challengeSize: (v) => `题目长度 ${v}`,
-    tokenTtlMs: (v) => `token 有效 ${Math.round(v / 60000)} 分钟`,
+    tokenTtlMs: (v) => `token 有效期 ${Math.round(v / 60000)} 分钟`,
     blockAutomatedBrowsers: (v) =>
       v ? "拦截自动化浏览器" : "放行自动化浏览器",
   };
@@ -164,7 +174,7 @@
             el("code", { class: "site-key", text: site.siteKey }),
             el("span", {
               class: `chip${site.enabled ? "" : " is-muted"}`,
-              text: site.enabled ? "启用中" : "已停用",
+              text: site.enabled ? "已启用" : "已停用",
             }),
           ]),
           origins,
@@ -204,7 +214,7 @@
         await navigator.clipboard.writeText($(copy.dataset.copy).textContent);
         toast("已复制");
       } catch {
-        toast("复制失败，请手动选择");
+        toast("复制失败，请手动选择内容后复制。");
       }
     });
   }
@@ -230,8 +240,8 @@
     $("secret-section").hidden = !secret;
     $("secret-value").textContent = secret || "";
     $("secret-warning").textContent = secret
-      ? "Secret 只显示这一次，关闭后无法再查看，请立刻存进服务器的环境变量（例如 PRIESTESS_SECRET）。丢了只能轮换。"
-      : `站点 ${site.name} 的接入代码。Secret 不会再显示，丢了请轮换。`;
+      ? "Secret 仅显示一次，关闭后无法再次查看。请立即将其保存至服务器的环境变量（例如 PRIESTESS_SECRET）；如有遗失，只能通过轮换重新生成。"
+      : `站点「${site.name}」的接入代码。Secret 不再显示；如有遗失，请轮换 secret。`;
     $("snippet-frontend").textContent = frontend;
     $("snippet-backend").textContent = backend;
     $("secret-dialog").showModal();
@@ -279,7 +289,7 @@
       if (editing) {
         await api(`/sites/${editing.siteKey}`, { method: "PATCH", body });
         $("site-dialog").close();
-        toast("已保存，最多 30 秒内生效");
+        toast("已保存，修改将在 30 秒内生效。");
         await loadSites();
       } else {
         const data = await api("/sites", { method: "POST", body });
@@ -313,7 +323,7 @@
   async function rotateSecret(site) {
     const ok = await confirmAction(
       "轮换 secret",
-      `${site.name} 的旧 secret 会立刻失效，接入方的后端要换成新的才能继续校验。`,
+      `轮换后，${site.name} 的旧 secret 将立即失效，接入方后端须改用新 secret 方可继续校验。`,
       "轮换",
     );
     if (!ok) return;
@@ -330,7 +340,7 @@
   async function deleteSite(site) {
     const ok = await confirmAction(
       "删除站点",
-      `删除 ${site.name}（${site.siteKey}）后，它的接入代码和 secret 都会失效，无法恢复。`,
+      `删除 ${site.name}（${site.siteKey}）后，其接入代码与 secret 将全部失效，且无法恢复。`,
       "删除",
     );
     if (!ok) return;
@@ -340,6 +350,838 @@
       await loadSites();
     } catch (error) {
       if (error.message !== "unauthenticated") toast(error.message);
+    }
+  }
+
+  // ── console tabs ────────────────────────────────────────────────────
+  const VIEWS = ["sites", "stats", "gate"];
+  let currentView = "sites";
+
+  // The rk-tabs indicator reads its offset and width from custom properties.
+  function placeTabIndicator() {
+    const bar = $("view-tabs");
+    const tab = $(`tab-${currentView}`);
+    if (bar.offsetParent === null) return;
+    bar.style.setProperty("--active-tab-left", `${tab.offsetLeft}px`);
+    bar.style.setProperty("--active-tab-width", `${tab.offsetWidth}px`);
+  }
+
+  function showView(view, { focus = false } = {}) {
+    const name = VIEWS.includes(view) ? view : "sites";
+    currentView = name;
+    for (const other of VIEWS) {
+      const tab = $(`tab-${other}`);
+      const selected = other === name;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      $(`view-${other}`).hidden = !selected;
+    }
+    if (focus) $(`tab-${name}`).focus();
+    placeTabIndicator();
+    const hash = name === "sites" ? "" : `#${name}`;
+    if (location.hash !== hash) {
+      history.replaceState(null, "", location.pathname + hash);
+    }
+    if (name === "stats") loadStats();
+    if (name === "gate") loadGate();
+  }
+
+  for (const tab of document.querySelectorAll("#view-tabs [role=tab]")) {
+    tab.addEventListener("click", () => showView(tab.dataset.view));
+  }
+
+  // Roving focus for tab lists and radio groups: arrows, Home and End.
+  function rovingIndex(event, index, count) {
+    const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[
+      event.key
+    ];
+    if (step) return (index + step + count) % count;
+    if (event.key === "Home") return 0;
+    if (event.key === "End") return count - 1;
+    return -1;
+  }
+
+  $("view-tabs").addEventListener("keydown", (event) => {
+    const next = rovingIndex(event, VIEWS.indexOf(currentView), VIEWS.length);
+    if (next < 0) return;
+    event.preventDefault();
+    showView(VIEWS[next], { focus: true });
+  });
+
+  addEventListener("resize", placeTabIndicator);
+  addEventListener("hashchange", () => {
+    if (!$("console-view").hidden) showView(location.hash.slice(1));
+  });
+
+  // ── error wording ───────────────────────────────────────────────────
+  // The API answers in short English sentences; the console shows a Chinese
+  // explanation first and keeps the original text for reference.
+  const HTTP_ERRORS = {
+    400: "提交的内容未通过校验。",
+    403: "当前账号无权执行此操作。",
+    404: "请求的对象不存在，可能已被删除。",
+    409: "该操作与现有配置冲突。",
+    429: "请求过于频繁，请稍后重试。",
+  };
+
+  function describeError(error, messages = {}) {
+    const status = error.status;
+    let text;
+    if (!status) text = "网络连接异常，请稍后重试。";
+    else
+      text =
+        messages[status] ||
+        HTTP_ERRORS[status] ||
+        (status >= 500 ? "服务内部错误，请稍后重试。" : "请求未能完成。");
+    const raw = error.message;
+    return raw && raw !== `HTTP ${status}` ? `${text}（原始信息：${raw}）` : text;
+  }
+
+  function showNotice(box, text) {
+    box.textContent = text;
+    box.hidden = false;
+  }
+
+  // ── statistics ──────────────────────────────────────────────────────
+  const EVENT_LABELS = {
+    challenge_issued: "发出挑战",
+    redeem_ok: "验证通过",
+    redeem_fail: "验证失败",
+    siteverify_ok: "服务端核验成功",
+    siteverify_fail: "服务端核验失败",
+    gate_shown: "显示验证页",
+    gate_pass: "发放通行凭证",
+    gate_pass_fail: "通行凭证发放失败",
+    rate_limited: "触发限流",
+  };
+  const EVENTS = Object.keys(EVENT_LABELS);
+
+  const REASON_LABELS = {
+    invalid_solution: "计算结果无效",
+    expired: "挑战已过期",
+    already_redeemed: "重复提交",
+    instr_blocked: "环境检测未通过",
+    instr_timeout: "环境检测超时",
+    invalid_token: "挑战令牌无效",
+    bad_request: "请求格式错误",
+    internal: "服务内部错误",
+    other: "其他",
+    invalid_secret: "密钥错误",
+    token_not_found: "令牌不存在",
+    token_expired: "令牌已过期",
+  };
+  const RATE_LIMIT_LABELS = {
+    challenge: "获取挑战",
+    redeem: "提交结果",
+    gate_pass: "网关放行",
+  };
+  const KIND_LABELS = { site: "站点", gate: "验证网关", default: "旧接口" };
+  const REASON_GROUPS = [
+    "redeem_fail",
+    "siteverify_fail",
+    "gate_pass_fail",
+    "rate_limited",
+  ];
+
+  function reasonLabel(group, reason) {
+    const labels = group === "rate_limited" ? RATE_LIMIT_LABELS : REASON_LABELS;
+    return labels[reason] || reason || "未注明";
+  }
+
+  const numberFormat = new Intl.NumberFormat("zh-CN");
+  const fmt = (n) => numberFormat.format(n || 0);
+  const pad2 = (n) => String(n).padStart(2, "0");
+
+  function percent(part, total) {
+    return total ? `${((part / total) * 100).toFixed(1)}%` : "—";
+  }
+
+  function passRate(row) {
+    const ok = row.redeem_ok || 0;
+    return percent(ok, ok + (row.redeem_fail || 0));
+  }
+
+  function dayText(date) {
+    return `${date.getMonth() + 1}月${date.getDate()}日`;
+  }
+
+  function dateTimeText(iso) {
+    const d = new Date(iso);
+    return `${dayText(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+
+  // Bucket names in local time: axis ticks are short, tooltips spell it out.
+  function bucketText(iso, bucket, long) {
+    const d = new Date(iso);
+    if (bucket !== "hour") {
+      return long ? dayText(d) : `${d.getMonth() + 1}/${d.getDate()}`;
+    }
+    const start = `${pad2(d.getHours())}:00`;
+    if (!long) return start;
+    return `${dayText(d)} ${start}–${pad2((d.getHours() + 1) % 24)}:00`;
+  }
+
+  const stats = { range: "24h", site: "", seq: 0, data: null, active: -1 };
+
+  async function loadStats() {
+    const seq = ++stats.seq;
+    const query = new URLSearchParams({
+      range: stats.range,
+      tz: String(-new Date().getTimezoneOffset()),
+    });
+    if (stats.site) query.set("site", stats.site);
+    $("stats-body").setAttribute("aria-busy", "true");
+    try {
+      const data = await api(`/stats?${query}`);
+      if (seq !== stats.seq) return;
+      $("stats-error").hidden = true;
+      renderStats(data);
+    } catch (error) {
+      if (seq !== stats.seq || error.message === "unauthenticated") return;
+      showNotice(
+        $("stats-error"),
+        `统计数据加载失败：${describeError(error, { 400: "统计查询参数无效。" })}`,
+      );
+      $("stats-body").hidden = !stats.data;
+    } finally {
+      if (seq === stats.seq) $("stats-body").setAttribute("aria-busy", "false");
+    }
+  }
+
+  function syncSiteOptions(rows) {
+    const options = [el("option", { value: "", text: "全部站点" })];
+    for (const row of rows) {
+      const kind = KIND_LABELS[row.kind] || row.kind;
+      options.push(
+        el("option", { value: row.site, text: `${row.label}（${kind}）` }),
+      );
+    }
+    if (stats.site && !rows.some((row) => row.site === stats.site)) {
+      options.push(el("option", { value: stats.site, text: stats.site }));
+    }
+    const select = $("stats-site");
+    select.replaceChildren(...options);
+    select.value = stats.site;
+  }
+
+  function renderStats(data) {
+    stats.data = data;
+    stats.active = -1;
+    $("stats-body").hidden = false;
+    syncSiteOptions(data.bySite || []);
+    const totals = data.totals;
+    $("stats-period").textContent =
+      `统计区间：${dateTimeText(data.from)} 至 ${dateTimeText(data.to)}（本地时间），更新于 ${dateTimeText(data.generatedAt)}。`;
+
+    const metrics = [
+      ["发出挑战", fmt(totals.challenge_issued), ""],
+      ["验证通过", fmt(totals.redeem_ok), ""],
+      ["验证失败", fmt(totals.redeem_fail), ""],
+      ["通过率", passRate(totals), "验证通过 ÷（验证通过 + 验证失败）"],
+      ["触发限流", fmt(totals.rate_limited), "按 1/10 抽样估算"],
+    ];
+    $("stats-metrics").replaceChildren(
+      ...metrics.map(([label, value, hint]) =>
+        el("li", { class: "metric", "data-glass": "panel" }, [
+          el("span", { class: "metric-label", text: label }),
+          el("span", { class: "metric-value", text: value }),
+          hint ? el("span", { class: "metric-hint", text: hint }) : "",
+        ]),
+      ),
+    );
+
+    const empty = EVENTS.every((name) => !totals[name]);
+    $("stats-empty").hidden = !empty;
+    $("stats-detail").hidden = empty;
+    if (empty) return;
+    renderChart();
+    renderSeriesTable();
+    renderReasons();
+    renderCounts();
+    renderBySite();
+  }
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  function svg(tag, attrs = {}) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [key, value] of Object.entries(attrs)) {
+      node.setAttribute(key, String(value));
+    }
+    return node;
+  }
+
+  // Round step (1, 2 or 5 × 10^n, at least 1) for four gridline intervals.
+  function niceStep(raw) {
+    const exp = 10 ** Math.floor(Math.log10(raw));
+    for (const m of [1, 2, 5, 10]) if (m * exp >= raw) return Math.max(1, m * exp);
+    return Math.max(1, raw);
+  }
+
+  // A bar segment; the top segment of each stack gets rounded upper corners.
+  function barPath(x, y, w, h, rounded) {
+    const r = rounded ? Math.min(4, w / 2, h) : 0;
+    return [
+      `M${x},${y + h}`,
+      `V${y + r}`,
+      r ? `Q${x},${y} ${x + r},${y}` : "",
+      `H${x + w - r}`,
+      r ? `Q${x + w},${y} ${x + w},${y + r}` : "",
+      `V${y + h}`,
+      "Z",
+    ].join(" ");
+  }
+
+  const chart = { width: 0, slots: [] };
+
+  function renderChart() {
+    const box = $("stats-chart");
+    const { series, bucket } = stats.data;
+    const width = Math.max(box.clientWidth, 240);
+    const height = 220;
+    chart.width = width;
+    const max = Math.max(1, ...series.map((r) => r.redeem_ok + r.redeem_fail));
+    const step = niceStep(max / 4);
+    const top = step * 4;
+    const left = 10 + 7 * fmt(top).length;
+    const plot = { x: left, y: 10, w: width - left - 4, h: height - 10 - 28 };
+    const y = (v) => plot.y + plot.h * (1 - v / top);
+    const slot = plot.w / series.length;
+    const barWidth = Math.max(2, Math.min(28, slot * 0.64));
+
+    const root = svg("svg", {
+      class: "chart-svg",
+      viewBox: `0 0 ${width} ${height}`,
+      width,
+      height,
+      "aria-hidden": "true",
+    });
+    for (let i = 0; i <= 4; i += 1) {
+      const gy = Math.round(y(step * i)) + 0.5;
+      root.append(
+        svg("line", {
+          class: i ? "chart-grid" : "chart-axis",
+          x1: plot.x,
+          x2: plot.x + plot.w,
+          y1: gy,
+          y2: gy,
+        }),
+      );
+      const label = svg("text", {
+        class: "chart-label",
+        x: plot.x - 6,
+        y: gy + 4,
+        "text-anchor": "end",
+      });
+      label.textContent = fmt(step * i);
+      root.append(label);
+    }
+
+    const band = svg("rect", {
+      class: "chart-band",
+      y: plot.y,
+      width: slot,
+      height: plot.h,
+      visibility: "hidden",
+    });
+    root.append(band);
+
+    const every = Math.ceil(series.length / Math.max(1, Math.floor(plot.w / 46)));
+    chart.slots = [];
+    series.forEach((row, i) => {
+      const x = plot.x + slot * i + (slot - barWidth) / 2;
+      const base = y(0);
+      const okH = base - y(row.redeem_ok);
+      const failH = base - y(row.redeem_fail);
+      const gap = okH > 0 && failH > 0 ? 2 : 0;
+      if (okH > 0) {
+        root.append(
+          svg("path", {
+            class: "chart-bar is-ok",
+            d: barPath(x, base - okH, barWidth, okH, failH <= 0),
+          }),
+        );
+      }
+      if (failH > 0) {
+        const h = Math.max(1, failH - gap);
+        root.append(
+          svg("path", {
+            class: "chart-bar is-fail",
+            d: barPath(x, base - okH - gap - h, barWidth, h, true),
+          }),
+        );
+      }
+      if (i % every === 0) {
+        const tick = svg("text", {
+          class: "chart-label",
+          x: plot.x + slot * i + slot / 2,
+          y: height - 8,
+          "text-anchor": "middle",
+        });
+        tick.textContent = bucketText(row.t, bucket, false);
+        root.append(tick);
+      }
+      const hit = svg("rect", {
+        class: "chart-hit",
+        x: plot.x + slot * i,
+        y: plot.y,
+        width: slot,
+        height: plot.h,
+      });
+      hit.addEventListener("pointerenter", () => setActive(i, false));
+      root.append(hit);
+      chart.slots.push({
+        x: plot.x + slot * i,
+        center: plot.x + slot * i + slot / 2,
+        top: base - okH - (failH > 0 ? gap + Math.max(1, failH - gap) : 0),
+      });
+    });
+    chart.band = band;
+    root.addEventListener("pointerleave", () => {
+      if (document.activeElement !== box) setActive(-1, false);
+    });
+
+    const okTotal = stats.data.totals.redeem_ok;
+    const failTotal = stats.data.totals.redeem_fail;
+    box.setAttribute(
+      "aria-label",
+      `验证结果趋势图，共 ${series.length} 个时段，验证通过合计 ${fmt(okTotal)} 次，验证失败合计 ${fmt(failTotal)} 次。`,
+    );
+    box.replaceChildren(
+      root,
+      el("div", { class: "chart-tip", id: "stats-chart-tip", hidden: true }),
+      el("p", { class: "visually-hidden", id: "stats-chart-live", "aria-live": "polite" }),
+    );
+    if (stats.active >= 0) setActive(stats.active, false);
+  }
+
+  function setActive(index, announce) {
+    stats.active = index;
+    const tip = $("stats-chart-tip");
+    if (!tip) return;
+    if (index < 0 || !stats.data) {
+      chart.band.setAttribute("visibility", "hidden");
+      tip.hidden = true;
+      return;
+    }
+    const row = stats.data.series[index];
+    const slot = chart.slots[index];
+    chart.band.setAttribute("x", slot.x);
+    chart.band.setAttribute("visibility", "visible");
+    const title = bucketText(row.t, stats.data.bucket, true);
+    const lines = [
+      ["验证通过", fmt(row.redeem_ok), "is-ok"],
+      ["验证失败", fmt(row.redeem_fail), "is-fail"],
+      ["通过率", passRate(row), ""],
+    ];
+    tip.replaceChildren(
+      el("span", { class: "chart-tip-title", text: title }),
+      ...lines.map(([label, value, swatch]) =>
+        el("span", { class: "chart-tip-row" }, [
+          el("span", { class: `swatch ${swatch}`.trim(), "aria-hidden": "true" }),
+          el("span", { text: label }),
+          el("span", { class: "chart-tip-value", text: value }),
+        ]),
+      ),
+    );
+    tip.hidden = false;
+    const half = tip.offsetWidth / 2;
+    const left = Math.min(Math.max(slot.center, half), chart.width - half);
+    tip.style.left = `${left}px`;
+    tip.style.top = `${Math.max(slot.top - 8, tip.offsetHeight)}px`;
+    if (announce) {
+      $("stats-chart-live").textContent =
+        `${title}：验证通过 ${fmt(row.redeem_ok)} 次，验证失败 ${fmt(row.redeem_fail)} 次，通过率 ${passRate(row)}。`;
+    }
+  }
+
+  $("stats-chart").tabIndex = 0;
+  $("stats-chart").setAttribute("role", "group");
+  $("stats-chart").setAttribute("aria-describedby", "stats-chart-hint");
+  $("stats-chart").addEventListener("keydown", (event) => {
+    if (!stats.data) return;
+    const count = stats.data.series.length;
+    const from = stats.active < 0 ? count : stats.active;
+    let next = rovingIndex(event, from, count);
+    if (stats.active < 0 && (event.key === "ArrowRight" || event.key === "ArrowDown")) {
+      next = 0;
+    }
+    if (event.key === "Escape") next = -1;
+    else if (next < 0) return;
+    event.preventDefault();
+    setActive(next, next >= 0);
+  });
+  $("stats-chart").addEventListener("focus", () => {
+    if (stats.data && stats.active < 0) {
+      setActive(stats.data.series.length - 1, true);
+    }
+  });
+  $("stats-chart").addEventListener("blur", () => setActive(-1, false));
+
+  let chartFrame = 0;
+  new ResizeObserver(() => {
+    cancelAnimationFrame(chartFrame);
+    chartFrame = requestAnimationFrame(() => {
+      const box = $("stats-chart");
+      if (
+        stats.data &&
+        box.offsetParent !== null &&
+        box.clientWidth !== chart.width
+      ) {
+        renderChart();
+      }
+    });
+  }).observe($("stats-chart"));
+
+  function table(target, head, rows) {
+    const thead = el("thead", {}, [
+      el(
+        "tr",
+        {},
+        head.map(([text, numeric]) =>
+          el("th", { scope: "col", class: numeric ? "num" : "", text }),
+        ),
+      ),
+    ]);
+    target.replaceChildren(thead, el("tbody", {}, rows));
+  }
+
+  function cells(values, numericFrom) {
+    return values.map((value, i) =>
+      i === 0
+        ? el("th", { scope: "row", text: value })
+        : el("td", { class: i >= numericFrom ? "num" : "", text: value }),
+    );
+  }
+
+  function renderSeriesTable() {
+    const { series, bucket } = stats.data;
+    table(
+      $("stats-series-table"),
+      [
+        [bucket === "hour" ? "时段（本地时间）" : "日期（本地时间）"],
+        ["验证通过", true],
+        ["验证失败", true],
+        ["通过率", true],
+      ],
+      series.map((row) =>
+        el(
+          "tr",
+          {},
+          cells(
+            [
+              bucketText(row.t, bucket, true),
+              fmt(row.redeem_ok),
+              fmt(row.redeem_fail),
+              passRate(row),
+            ],
+            1,
+          ),
+        ),
+      ),
+    );
+  }
+
+  function renderReasons() {
+    const reasons = stats.data.reasons || {};
+    const rows = [];
+    for (const group of REASON_GROUPS) {
+      const entries = Object.entries(reasons[group] || {})
+        .filter(([, n]) => n > 0)
+        .sort((a, b) => b[1] - a[1]);
+      if (!entries.length) continue;
+      const total = entries.reduce((sum, [, n]) => sum + n, 0);
+      rows.push(
+        el("tr", { class: "group-row" }, [
+          el("th", {
+            scope: "rowgroup",
+            colspan: "3",
+            text: `${EVENT_LABELS[group]}（共 ${fmt(total)} 次）`,
+          }),
+        ]),
+      );
+      for (const [reason, n] of entries) {
+        rows.push(
+          el(
+            "tr",
+            {},
+            cells([reasonLabel(group, reason), fmt(n), percent(n, total)], 1),
+          ),
+        );
+      }
+    }
+    $("stats-reasons").hidden = !rows.length;
+    $("stats-reasons-empty").hidden = rows.length > 0;
+    table(
+      $("stats-reasons"),
+      [["原因"], ["次数", true], ["占比", true]],
+      rows,
+    );
+  }
+
+  function countList(target, items) {
+    const totals = stats.data.totals;
+    target.replaceChildren(
+      ...items.map(([event, label]) =>
+        el("div", { class: "count" }, [
+          el("dt", { text: label }),
+          el("dd", { text: fmt(totals[event]) }),
+        ]),
+      ),
+    );
+  }
+
+  function renderCounts() {
+    countList($("stats-siteverify"), [
+      ["siteverify_ok", "成功"],
+      ["siteverify_fail", "失败"],
+    ]);
+    countList($("stats-gate"), [
+      ["gate_shown", "显示验证页"],
+      ["gate_pass", "发放通行凭证"],
+      ["gate_pass_fail", "发放失败"],
+    ]);
+  }
+
+  function renderBySite() {
+    const rows = (stats.data.bySite || []).map((row) => {
+      const tr = el(
+        "tr",
+        { class: row.site === stats.site ? "is-selected" : "" },
+        cells(
+          [
+            row.label,
+            KIND_LABELS[row.kind] || row.kind,
+            fmt(row.challenge_issued),
+            fmt(row.redeem_ok),
+            fmt(row.redeem_fail),
+            passRate(row),
+            fmt(row.rate_limited),
+          ],
+          2,
+        ),
+      );
+      return tr;
+    });
+    if (!rows.length) {
+      rows.push(
+        el("tr", {}, [
+          el("td", { colspan: "7", class: "muted", text: "暂无站点数据。" }),
+        ]),
+      );
+    }
+    table(
+      $("stats-by-site"),
+      [
+        ["站点"],
+        ["类型"],
+        ["发出挑战", true],
+        ["验证通过", true],
+        ["验证失败", true],
+        ["通过率", true],
+        ["触发限流", true],
+      ],
+      rows,
+    );
+  }
+
+  const rangeButtons = [...document.querySelectorAll("#stats-range [data-range]")];
+  function selectRange(button, focus) {
+    for (const other of rangeButtons) {
+      const checked = other === button;
+      other.setAttribute("aria-checked", String(checked));
+      other.toggleAttribute("data-checked", checked);
+      other.tabIndex = checked ? 0 : -1;
+    }
+    if (focus) button.focus();
+    if (stats.range === button.dataset.range) return;
+    stats.range = button.dataset.range;
+    loadStats();
+  }
+  for (const button of rangeButtons) {
+    button.addEventListener("click", () => selectRange(button, false));
+  }
+  $("stats-range").addEventListener("keydown", (event) => {
+    const current = rangeButtons.findIndex(
+      (b) => b.getAttribute("aria-checked") === "true",
+    );
+    const next = rovingIndex(event, current, rangeButtons.length);
+    if (next < 0) return;
+    event.preventDefault();
+    selectRange(rangeButtons[next], true);
+  });
+  $("stats-site").addEventListener("change", (event) => {
+    stats.site = event.currentTarget.value;
+    loadStats();
+  });
+  $("stats-refresh").addEventListener("click", () => loadStats());
+
+  // ── verification gate ───────────────────────────────────────────────
+  let gateHosts = [];
+  let gateEditing = null;
+
+  function describeGateError(error, creating) {
+    let invalid = "提交的内容未通过校验。";
+    const raw = (error.message || "").toLowerCase();
+    if (/exempt|path/.test(raw)) invalid = "放行路径不符合要求。";
+    else if (raw.includes("upstream")) invalid = "源站地址不符合要求。";
+    else if (raw.includes("host")) invalid = "域名不符合要求。";
+    return describeError(error, {
+      400: invalid,
+      404: "该域名不存在，可能已被删除。",
+      409: creating
+        ? "该域名已存在于后台或部署配置中。"
+        : "该域名由部署配置定义，无法在后台修改。",
+    });
+  }
+
+  async function loadGate() {
+    try {
+      const data = await api("/gate");
+      gateHosts = data.hosts || [];
+      $("gate-error").hidden = true;
+      renderGate();
+    } catch (error) {
+      if (error.message === "unauthenticated") return;
+      showNotice($("gate-error"), `网关列表加载失败：${describeError(error)}`);
+    }
+  }
+
+  function renderGate() {
+    $("gate-empty").hidden = gateHosts.length > 0;
+    $("gate-panel").hidden = gateHosts.length === 0;
+    $("gate-rows").replaceChildren(
+      ...gateHosts.map((host) => {
+        const fromConfig = host.source === "config";
+        const actions = fromConfig
+          ? [button("查看", () => openGateDialog(host), "is-small")]
+          : [
+              button("编辑", () => openGateDialog(host), "is-small"),
+              button("删除", () => deleteGate(host), "is-small is-danger"),
+            ];
+        return el("tr", { class: host.enabled ? "" : "is-disabled" }, [
+          el("th", { scope: "row", class: "mono", text: host.host }),
+          el("td", { class: "mono", "data-label": "源站地址", text: host.upstream }),
+          el("td", { "data-label": "状态" }, [
+            el("span", {
+              class: `chip${host.enabled ? " is-on" : " is-muted"}`,
+              text: host.enabled ? "已启用" : "已停用",
+            }),
+          ]),
+          el("td", {
+            class: "num",
+            "data-label": "放行路径",
+            text: fmt(host.exemptPaths?.length),
+          }),
+          el("td", {
+            class: "muted",
+            "data-label": "来源",
+            text: fromConfig ? "部署配置" : "后台添加",
+          }),
+          el("td", { class: "actions" }, [
+            el("div", { class: "row-actions" }, actions),
+          ]),
+        ]);
+      }),
+    );
+  }
+
+  function setGateSwitch(on) {
+    const toggle = $("gate-enabled");
+    toggle.setAttribute("aria-checked", String(on));
+    toggle.toggleAttribute("data-checked", on);
+  }
+
+  $("gate-enabled").addEventListener("click", () => {
+    setGateSwitch($("gate-enabled").getAttribute("aria-checked") !== "true");
+  });
+
+  function openGateDialog(host) {
+    gateEditing = host;
+    const readOnly = host?.source === "config";
+    const form = $("gate-form");
+    const f = form.elements;
+    form.reset();
+    $("gate-form-error").hidden = true;
+    $("gate-dialog-title").textContent = !host
+      ? "添加域名"
+      : readOnly
+        ? "查看域名"
+        : "编辑域名";
+    f.host.value = host?.host ?? "";
+    f.host.readOnly = Boolean(host);
+    f.upstream.value = host?.upstream ?? "";
+    f.upstream.readOnly = readOnly;
+    f.exemptPaths.value = (host?.exemptPaths ?? []).join("\n");
+    f.exemptPaths.readOnly = readOnly;
+    setGateSwitch(host ? host.enabled : true);
+    $("gate-enabled").disabled = readOnly;
+    $("gate-enabled").toggleAttribute("data-readonly", readOnly);
+    $("gate-readonly").hidden = !readOnly;
+    $("gate-save").hidden = readOnly;
+    $("gate-delete").hidden = !host || readOnly;
+    $("gate-cancel").textContent = readOnly ? "关闭" : "取消";
+    $("gate-dialog").showModal();
+  }
+
+  $("new-gate").addEventListener("click", () => openGateDialog(null));
+  $("gate-delete").addEventListener("click", () => deleteGate(gateEditing));
+
+  $("gate-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (gateEditing?.source === "config") return;
+    const f = event.currentTarget.elements;
+    const body = {
+      upstream: f.upstream.value.trim(),
+      exemptPaths: f.exemptPaths.value
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
+      enabled: $("gate-enabled").getAttribute("aria-checked") === "true",
+    };
+    const creating = !gateEditing;
+    try {
+      if (creating) {
+        body.host = f.host.value.trim().toLowerCase();
+        await api("/gate", { method: "POST", body });
+      } else {
+        await api(`/gate/${encodeURIComponent(gateEditing.host)}`, {
+          method: "PATCH",
+          body,
+        });
+      }
+      $("gate-dialog").close();
+      toast(
+        creating
+          ? "已添加，设置将在 60 秒内生效。"
+          : "已保存，修改将在 60 秒内生效。",
+      );
+      await loadGate();
+    } catch (error) {
+      if (error.message === "unauthenticated") return;
+      showNotice(
+        $("gate-form-error"),
+        `保存失败：${describeGateError(error, creating)}`,
+      );
+    }
+  });
+
+  async function deleteGate(host) {
+    const ok = await confirmAction(
+      "删除网关域名",
+      `删除 ${host.host} 的网关设置后无法恢复，修改将在 60 秒内生效。`,
+      "删除",
+    );
+    if (!ok) return;
+    try {
+      await api(`/gate/${encodeURIComponent(host.host)}`, { method: "DELETE" });
+      if ($("gate-dialog").open) $("gate-dialog").close();
+      toast("已删除。");
+      await loadGate();
+    } catch (error) {
+      if (error.message === "unauthenticated") return;
+      const message = `删除失败：${describeGateError(error, false)}`;
+      if ($("gate-dialog").open) showNotice($("gate-form-error"), message);
+      else showNotice($("gate-error"), message);
     }
   }
 
@@ -362,6 +1204,7 @@
     }
     const { user } = await res.json();
     showConsole(user);
+    showView(location.hash.slice(1));
     await loadSites();
-  })().catch(() => showLogin("加载失败，请刷新重试。"));
+  })().catch(() => showLogin("加载失败，请刷新页面后重试。"));
 })();
