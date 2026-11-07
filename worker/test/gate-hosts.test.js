@@ -139,6 +139,13 @@ describe("gate hosts: validation helpers", () => {
     expect(validateExemptPaths(Array(60).fill("/same"))).toEqual(["/same"]);
   });
 
+  it("rejects exempt paths that the request check could never match", () => {
+    for (const entry of ["/a;b", "/a%2Fb", "/a%5cb", "/a%2e/", "/a%3Bb"]) {
+      expect(() => validateExemptPaths([entry])).toThrow("must not contain");
+    }
+    expect(validateExemptPaths(["/docs%20v1/"])).toEqual(["/docs%20v1/"]);
+  });
+
   it("derives selfHosts from ALLOWED_ORIGINS minus configured gate hosts", () => {
     const config = readConfig({
       ALLOWED_ORIGINS: "https://verify.rakko.cn,https://cfg.example",

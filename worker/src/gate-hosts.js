@@ -103,9 +103,14 @@ export function validateExemptPaths(input) {
         `exempt paths must be at most ${MAX_EXEMPT_PATH_LENGTH} characters`,
       );
     }
-    if (/[?#\s]/.test(entry) || entry.includes("..")) {
+    // An entry the request check (UNSAFE_PATH) refuses could never match.
+    if (
+      /[?#\s]/.test(entry) ||
+      entry.includes("..") ||
+      UNSAFE_PATH.test(entry)
+    ) {
       throw new ValidationError(
-        `exempt path must not contain ?, #, .. or whitespace: ${entry}`,
+        `exempt path must not contain ?, #, ;, .., whitespace or an encoded separator: ${entry}`,
       );
     }
     if (entry === "/") {

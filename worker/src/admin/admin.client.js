@@ -1072,7 +1072,7 @@
     ["upstream", "upstream", "源站地址格式无效，应为以 https:// 开头的地址。"],
     ["exempt path must not be /", "exemptPaths", "放行路径不能为 /，否则整个域名都将免于验证。"],
     ["exempt path must not be under", "exemptPaths", "放行路径不能位于 /__gate/ 之下。"],
-    ["must not contain", "exemptPaths", "放行路径不能包含 ?、#、.. 或空白字符。"],
+    ["must not contain", "exemptPaths", "放行路径不能包含 ?、#、;、..、空白字符或编码后的分隔符（如 %2F）。"],
     ["characters", "exemptPaths", "每条放行路径不能超过 256 个字符。"],
     ["starting with /", "exemptPaths", "每条放行路径都必须以 / 开头。"],
     ["exempt paths", "exemptPaths", "放行路径最多 50 条。"],
