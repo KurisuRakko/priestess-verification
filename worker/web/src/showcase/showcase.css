@@ -175,11 +175,6 @@
   background: var(--color-neutral-6);
 }
 
-/* Link-rendered buttons (render={<a/>}) keep the button look. */
-.pv-page a.rk-button {
-  text-decoration: none;
-}
-
 /* ------------------------------------------------------------ sections */
 
 .pv-section {

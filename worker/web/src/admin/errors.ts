@@ -111,22 +111,92 @@ export function gateErrorRule(message: string) {
 }
 
 /**
- * -> `{ text, field }`: `field` is the form control the error is about (or
- * null). A 409 means "already exists" when creating and "defined by the
- * deployment configuration" otherwise.
+ * -> `{ text, field, detail }`: `text` is the full explanation with the
+ * original message (for the notice under the form), `field` the form
+ * control the error is about (or null), and `detail` the Chinese
+ * explanation alone, shown under that field. A 409 means "already exists"
+ * when creating and "defined by the deployment configuration" otherwise.
  */
 export function describeGateError(
   error: ErrorLike,
   creating: boolean,
-): { text: string; field: GateField | null } {
+): { text: string; field: GateField | null; detail: string } {
   const rule = error.status === 400 ? gateErrorRule(error.message || "") : undefined;
-  const text = describeError(error, {
+  const messages = {
     400: rule ? rule[2] : "提交的内容未通过校验。",
     404: "该域名不存在，可能已被删除。",
     409: creating
       ? "该域名已存在于后台或部署配置中。"
       : "该域名由部署配置定义，无法在后台修改。",
-  });
+  };
+  const text = describeError(error, messages);
   const field = rule ? rule[1] : creating && error.status === 409 ? "host" : null;
-  return { text, field };
+  const detail = field ? messages[error.status as 400 | 409] : text;
+  return { text, field, detail };
+}
+
+export type SiteField =
+  | "name"
+  | "origins"
+  | "challengeDifficulty"
+  | "challengeCount"
+  | "tokenTtlMinutes";
+
+/**
+ * The sites API's 400 messages (sites.js, admin/api.js), matched like
+ * `GATE_ERROR_RULES`: the first rule whose text occurs in the lowercased
+ * message gives the site form field (or null) and the explanation.
+ */
+export const SITE_ERROR_RULES: ReadonlyArray<
+  readonly [needle: string, field: SiteField | null, text: string]
+> = [
+  ["name must be", "name", "名称须为 1 至 80 个字符。"],
+  ["not a url", "origins", "允许的域名中有无法识别的地址，每行应为一个以协议开头的地址（例如 https://example.com）。"],
+  ["must be a bare origin", "origins", "允许的域名只能包含协议与域名（可带端口），不能包含路径、查询参数或片段。"],
+  ["must use https", "origins", "允许的域名必须使用 https:// 协议；仅 localhost、127.0.0.1 与 [::1] 可使用 http://。"],
+  ["at least one origin", "origins", "至少需要填写一个允许的域名。"],
+  ["origins must be", "origins", "允许的域名格式无效。"],
+  ["origins", "origins", "允许的域名最多 50 个。"],
+  ["sites", null, "站点数量已达上限，请先删除不再使用的站点。"],
+  ["challengedifficulty", "challengeDifficulty", "难度须为 1 至 16 之间的整数。"],
+  ["challengecount", "challengeCount", "题目数量须为 1 至 1000 之间的整数。"],
+  ["tokenttlms", "tokenTtlMinutes", "token 有效期须为 1 至 1440 分钟之间的整数。"],
+];
+
+export function siteErrorRule(message: string) {
+  const raw = message.toLowerCase();
+  return SITE_ERROR_RULES.find(([needle]) => raw.includes(needle));
+}
+
+/**
+ * -> `{ text, field }` for a failed sites API call. A 400 the rules know and
+ * a 404 read as a Chinese explanation alone; anything else is the general
+ * explanation with the original message (`describeError`). `field` is the
+ * site form control the error is about, or null.
+ */
+export function describeSiteError(error: ErrorLike): {
+  text: string;
+  field: SiteField | null;
+} {
+  const rule = error.status === 400 ? siteErrorRule(error.message || "") : undefined;
+  if (rule) return { text: rule[2], field: rule[1] };
+  if (error.status === 404) {
+    return { text: "该站点不存在，可能已被删除。", field: null };
+  }
+  return { text: describeError(error), field: null };
+}
+
+const SITE_ACTIONS = {
+  load: "站点列表加载失败",
+  enable: "启用失败",
+  disable: "停用失败",
+  rotate: "轮换失败",
+  delete: "删除失败",
+} as const;
+
+export type SiteAction = keyof typeof SITE_ACTIONS;
+
+/** The Snackbar line for a failed site action: "停用失败：…". */
+export function siteFailureText(action: SiteAction, error: ErrorLike): string {
+  return `${SITE_ACTIONS[action]}：${describeSiteError(error).text}`;
 }

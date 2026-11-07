@@ -1,14 +1,16 @@
-/*
- * NOT YET WIRED IN. Rakko Design's `Table` and `BarChart` are being added
- * upstream (contract: Table.Root/Header/Body/Footer/Row/HeaderCell/Cell/
- * GroupRow, BarChart with data/series/tooltipExtra); until they are synced
- * into vendor/rakko-design, `@rakko/react` does not export them, so this file
- * is excluded from web/tsconfig.json and imported by nothing. Once synced:
- * drop the exclude, then use TrendChart / ReasonsTable / BySiteTable in
- * stats-view.tsx (in place of the PENDING placeholders) and GateTable in
- * gate-view.tsx (in place of the List.Group).
+/**
+ * The console's tables and its one chart, on Rakko Design's Table and
+ * BarChart: the statistics trend (with a table view), failure reasons,
+ * per-site counts, and the gate host list.
  */
-import { BarChart, Badge, Button, Collapsible, EmptyState, Table } from "@rakko/react";
+import {
+  BarChart,
+  Badge,
+  Button,
+  Collapsible,
+  EmptyState,
+  Table,
+} from "@rakko/react";
 import { useState } from "react";
 
 import type { GateHost } from "./gate";
@@ -127,7 +129,7 @@ export function BySiteTable({ data }: { data: StatsData }) {
   const rows = data.bySite || [];
   if (!rows.length) {
     return (
-      <EmptyState layout="none" className="pv-pending">
+      <EmptyState layout="none" className="pv-empty">
         {STATS_NOTES.bySiteEmpty}
       </EmptyState>
     );
@@ -172,7 +174,7 @@ export function BySiteTable({ data }: { data: StatsData }) {
   );
 }
 
-/** The gate host list as a table (replaces GateRow's List.Group). */
+/** 验证网关: the gate hosts, stacked into cards on narrow screens. */
 export function GateTable({
   hosts,
   onOpen,
@@ -215,7 +217,7 @@ export function GateTable({
             </Table.Cell>
             <Table.Cell label="来源">{sourceLabel(host)}</Table.Cell>
             <Table.Cell align="end">
-              <div className="pv-gate-row__actions">
+              <div className="pv-row-actions">
                 {isReadOnly(host) ? (
                   <Button onClick={() => onOpen(host)}>查看</Button>
                 ) : (

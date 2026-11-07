@@ -4,7 +4,6 @@ import {
   Dialog,
   EmptyState,
   Field,
-  List,
   Switch,
 } from "@rakko/react";
 import type { FormEvent, ReactNode } from "react";
@@ -21,62 +20,10 @@ import {
   gateDialogTitle,
   gateForm,
   isReadOnly,
-  sourceLabel,
 } from "./gate";
 import { PlusIcon } from "./icons";
-import { fmt } from "./stats";
+import { GateTable } from "./tables";
 import { DialogActions, Notice, PageHead, useConfirm, useToast } from "./ui";
-
-/*
- * The host list is a Rakko Design Table once that primitive is synced into
- * vendor/ (see GateTable in stats-tables.tsx); until then it is a List.Group.
- */
-function GateRow({
-  host,
-  onOpen,
-  onDelete,
-}: {
-  host: GateHost;
-  onOpen: () => void;
-  onDelete: () => void;
-}) {
-  const readOnly = isReadOnly(host);
-  return (
-    <List.Row className="pv-gate-row" data-disabled={host.enabled ? undefined : ""}>
-      <div className="pv-gate-row__body">
-        <div className="pv-gate-row__top">
-          <h2 className="pv-gate-row__host">{host.host}</h2>
-          <Badge tone={host.enabled ? "success" : "neutral"} size="sm">
-            {host.enabled ? "已启用" : "已停用"}
-          </Badge>
-          <Badge size="sm">{sourceLabel(host)}</Badge>
-        </div>
-        <dl className="pv-gate-row__facts">
-          <div>
-            <dt>源站地址</dt>
-            <dd className="pv-mono">{host.upstream}</dd>
-          </div>
-          <div>
-            <dt>放行路径</dt>
-            <dd>{fmt(host.exemptPaths?.length)}</dd>
-          </div>
-        </dl>
-      </div>
-      <div className="pv-gate-row__actions">
-        {readOnly ? (
-          <Button onClick={onOpen}>查看</Button>
-        ) : (
-          <>
-            <Button onClick={onOpen}>编辑</Button>
-            <Button variant="danger" onClick={onDelete}>
-              删除
-            </Button>
-          </>
-        )}
-      </div>
-    </List.Row>
-  );
-}
 
 function GateDialog({
   open,
@@ -146,10 +93,13 @@ function GateDialog({
       onSaved(creating);
     } catch (failure) {
       if (isUnauthenticated(failure)) return;
-      const { text, field } = describeGateError(failure as Error, creating);
+      const { text, field, detail } = describeGateError(
+        failure as Error,
+        creating,
+      );
       if (field) {
         setError("");
-        setInvalid({ field, text: `保存失败：${text}` });
+        setInvalid({ field, text: detail });
       } else {
         setInvalid(null);
         setError(`保存失败：${text}`);
@@ -335,16 +285,7 @@ export function GateView({ active }: { active: boolean }) {
       </ul>
       <Notice>{pageError}</Notice>
       {hosts === null ? null : hosts.length > 0 ? (
-        <List.Group aria-label="网关域名" className="pv-gate-list">
-          {hosts.map((host) => (
-            <GateRow
-              key={host.host}
-              host={host}
-              onOpen={() => edit(host)}
-              onDelete={() => remove(host)}
-            />
-          ))}
-        </List.Group>
+        <GateTable hosts={hosts} onOpen={edit} onDelete={remove} />
       ) : (
         <EmptyState layout="none" className="pv-empty">
           {GATE_COPY.empty}

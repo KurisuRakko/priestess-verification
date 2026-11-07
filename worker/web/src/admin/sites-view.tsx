@@ -9,9 +9,12 @@ import {
   List,
 } from "@rakko/react";
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, errorMessage, isUnauthenticated } from "./api";
+import { api, isUnauthenticated } from "./api";
+import type { SiteField } from "./errors";
+import type { SiteAction } from "./errors";
+import { describeSiteError, siteFailureText } from "./errors";
 import { ChevronIcon, PlusIcon } from "./icons";
 import type { Site, SiteForm } from "./sites";
 import {
@@ -101,16 +104,41 @@ function SiteDialog({
   const [error, setError] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [invalid, setInvalid] = useState<{ field: SiteField; text: string } | null>(
+    null,
+  );
+  const controls = {
+    name: useRef<HTMLInputElement>(null),
+    origins: useRef<HTMLTextAreaElement>(null),
+    challengeDifficulty: useRef<HTMLInputElement>(null),
+    challengeCount: useRef<HTMLInputElement>(null),
+    tokenTtlMinutes: useRef<HTMLInputElement>(null),
+  };
 
   useEffect(() => {
     if (!open) return;
     setForm(siteForm(site));
     setError("");
+    setInvalid(null);
     setAdvanced(false);
   }, [open, site]);
 
+  // The marked field takes focus once its error is on screen.
+  useEffect(() => {
+    if (invalid) controls[invalid.field].current?.focus();
+  }, [invalid]);
+
   const set = <K extends keyof SiteForm>(key: K) =>
-    (value: SiteForm[K]) => setForm((f) => ({ ...f, [key]: value }));
+    (value: SiteForm[K]) => {
+      setForm((f) => ({ ...f, [key]: value }));
+      // Editing the marked field takes its error away.
+      if (invalid?.field === key) setInvalid(null);
+    };
+
+  const fieldError = (field: SiteField) =>
+    invalid?.field === field ? (
+      <Field.Error match>{invalid.text}</Field.Error>
+    ) : null;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -128,8 +156,16 @@ function SiteDialog({
         onSaved(data);
       }
     } catch (failure) {
-      if (!isUnauthenticated(failure)) {
-        setError(`保存失败：${errorMessage(failure)}`);
+      if (isUnauthenticated(failure)) return;
+      const { text, field } = describeSiteError(failure as Error);
+      if (field) {
+        setError("");
+        // The settings fields live in the collapsed advanced section.
+        if (field !== "name" && field !== "origins") setAdvanced(true);
+        setInvalid({ field, text });
+      } else {
+        setInvalid(null);
+        setError(`保存失败：${text}`);
       }
     } finally {
       setBusy(false);
@@ -141,19 +177,22 @@ function SiteDialog({
       <Dialog.Popup className="pv-dialog">
         <Dialog.Title>{site ? "编辑站点" : "新建站点"}</Dialog.Title>
         <form className="pv-form" onSubmit={submit}>
-          <Field.Root>
+          <Field.Root invalid={invalid?.field === "name"}>
             <Field.Label>名称</Field.Label>
             <Field.Control
+              ref={controls.name}
               value={form.name}
               onValueChange={set("name")}
               maxLength={80}
               required
               autoComplete="off"
             />
+            {fieldError("name")}
           </Field.Root>
-          <Field.Root>
+          <Field.Root invalid={invalid?.field === "origins"}>
             <Field.Label>允许的域名</Field.Label>
             <Field.Control
+              ref={controls.origins}
               render={<textarea rows={3} />}
               value={form.origins}
               onValueChange={set("origins")}
@@ -161,6 +200,7 @@ function SiteDialog({
               spellCheck={false}
               placeholder="https://example.com"
             />
+            {fieldError("origins")}
             <Field.Description>
               每行一个，仅填写协议与域名（例如
               https://blog.rakko.cn），不含路径。本地调试可填写
@@ -180,9 +220,10 @@ function SiteDialog({
             </Collapsible.Trigger>
             <Collapsible.Content>
               <div className="pv-advanced__grid">
-                <Field.Root>
+                <Field.Root invalid={invalid?.field === "challengeDifficulty"}>
                   <Field.Label>难度</Field.Label>
                   <Field.Control
+              ref={controls.challengeDifficulty}
                     type="number"
                     min={1}
                     max={16}
@@ -190,10 +231,12 @@ function SiteDialog({
                     value={form.challengeDifficulty}
                     onValueChange={set("challengeDifficulty")}
                   />
+            {fieldError("challengeDifficulty")}
                 </Field.Root>
-                <Field.Root>
+                <Field.Root invalid={invalid?.field === "challengeCount"}>
                   <Field.Label>题目数量</Field.Label>
                   <Field.Control
+              ref={controls.challengeCount}
                     type="number"
                     min={1}
                     max={1000}
@@ -201,10 +244,12 @@ function SiteDialog({
                     value={form.challengeCount}
                     onValueChange={set("challengeCount")}
                   />
+            {fieldError("challengeCount")}
                 </Field.Root>
-                <Field.Root>
+                <Field.Root invalid={invalid?.field === "tokenTtlMinutes"}>
                   <Field.Label>token 有效期（分钟）</Field.Label>
                   <Field.Control
+              ref={controls.tokenTtlMinutes}
                     type="number"
                     min={1}
                     max={1440}
@@ -212,6 +257,7 @@ function SiteDialog({
                     value={form.tokenTtlMinutes}
                     onValueChange={set("tokenTtlMinutes")}
                   />
+            {fieldError("tokenTtlMinutes")}
                 </Field.Root>
                 <label className="pv-check">
                   <Checkbox.Root
@@ -309,7 +355,9 @@ export function SitesView() {
       const data = await api<{ sites: Site[] }>("/sites");
       setSites(data.sites);
     } catch (error) {
-      if (!isUnauthenticated(error)) toast(errorMessage(error));
+      if (!isUnauthenticated(error)) {
+        toast(siteFailureText("load", error as Error));
+      }
     }
   }, [toast]);
 
@@ -317,16 +365,18 @@ export function SitesView() {
     load();
   }, [load]);
 
-  async function run(action: () => Promise<void>) {
+  async function run(kind: SiteAction, action: () => Promise<void>) {
     try {
       await action();
     } catch (error) {
-      if (!isUnauthenticated(error)) toast(errorMessage(error));
+      if (!isUnauthenticated(error)) {
+        toast(siteFailureText(kind, error as Error));
+      }
     }
   }
 
   const toggle = (site: Site) =>
-    run(async () => {
+    run(site.enabled ? "disable" : "enable", async () => {
       await api(`/sites/${site.siteKey}`, {
         method: "PATCH",
         body: { enabled: !site.enabled },
@@ -342,7 +392,7 @@ export function SitesView() {
       "轮换",
     );
     if (!ok) return;
-    await run(async () => {
+    await run("rotate", async () => {
       const data = await api<{ secret: string }>(
         `/sites/${site.siteKey}/rotate`,
         { method: "POST" },
@@ -358,7 +408,7 @@ export function SitesView() {
       "删除",
     );
     if (!ok) return;
-    await run(async () => {
+    await run("delete", async () => {
       await api(`/sites/${site.siteKey}`, { method: "DELETE" });
       toast("已删除");
       await load();

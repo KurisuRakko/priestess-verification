@@ -49,8 +49,3 @@ export async function api<T>(
 export function isUnauthenticated(error: unknown): boolean {
   return error instanceof Unauthenticated;
 }
-
-/** The API's error text, as the console showed it before (toasts). */
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

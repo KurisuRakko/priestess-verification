@@ -27,18 +27,12 @@ import {
   isEmpty,
   metrics,
   periodText,
-  reasonSections,
   siteOptions,
   statsQuery,
 } from "./stats";
+import { BySiteTable, ReasonsTable, TrendChart } from "./tables";
 import { Notice, PageHead } from "./ui";
 
-/*
- * The trend chart, the failure-reason table and the per-site table come from
- * Rakko Design's Table and BarChart (see stats-tables.tsx); until those are
- * synced into vendor/, their sections hold this placeholder.
- */
-const PENDING = "该部分将在表格与图表组件接入后显示。";
 
 function Section({
   id,
@@ -80,22 +74,13 @@ function Counts({
 }
 
 function Detail({ data }: { data: StatsData }) {
-  const reasons = reasonSections(data.reasons);
   return (
     <div className="pv-stats-detail">
       <Section id="stats-chart-title" title="验证结果趋势">
-        <EmptyState layout="none" className="pv-pending">
-          {PENDING}
-        </EmptyState>
+        <TrendChart data={data} />
       </Section>
       <Section id="stats-reasons-title" title="失败原因">
-        {reasons.length ? (
-          <EmptyState layout="none" className="pv-pending">
-            {PENDING}
-          </EmptyState>
-        ) : (
-          <p className="pv-hint">{STATS_NOTES.reasonsEmpty}</p>
-        )}
+        <ReasonsTable data={data} />
       </Section>
       <div className="pv-pair">
         <Counts
@@ -106,9 +91,7 @@ function Detail({ data }: { data: StatsData }) {
         <Counts title="验证网关" items={GATE_COUNTS} totals={data.totals} />
       </div>
       <Section id="stats-sites-title" title="各站点">
-        <EmptyState layout="none" className="pv-pending">
-          {PENDING}
-        </EmptyState>
+        <BySiteTable data={data} />
       </Section>
     </div>
   );

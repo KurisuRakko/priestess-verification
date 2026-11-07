@@ -2,7 +2,7 @@ import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import appScript from "../src/generated/admin.client.js";
 import appCss from "../src/generated/admin.css";
-import { readConfig } from "../src/config.js";
+import { readConfig, SITE_SETTING_RANGES } from "../src/config.js";
 import {
   MAX_EXEMPT_PATH_LENGTH,
   MAX_EXEMPT_PATHS,
@@ -11,12 +11,20 @@ import {
   validateGateHost,
   validateUpstream,
 } from "../src/gate-hosts.js";
+import {
+  MAX_ORIGINS,
+  validateName,
+  validateOrigins,
+  validateSettings,
+} from "../src/sites.js";
 import { doneUrl, finishSignIn } from "../web/src/admin/callback.ts";
 import {
   describeError,
   describeGateError,
+  describeSiteError,
   gateErrorRule,
   loginErrorText,
+  siteFailureText,
 } from "../web/src/admin/errors.ts";
 import {
   GATE_COPY,
@@ -173,13 +181,29 @@ describe("admin console gate errors", () => {
     expect(describeGateError(conflict, true)).toEqual({
       text: "该域名已存在于后台或部署配置中。（原始信息：gate host already exists）",
       field: "host",
+      detail: "该域名已存在于后台或部署配置中。",
     });
     expect(describeGateError({ status: 409, message: "HTTP 409" }, false)).toEqual(
-      { text: "该域名由部署配置定义，无法在后台修改。", field: null },
+      {
+        text: "该域名由部署配置定义，无法在后台修改。",
+        field: null,
+        detail: "该域名由部署配置定义，无法在后台修改。",
+      },
     );
     expect(
       describeGateError({ status: 404, message: "HTTP 404" }, false).text,
     ).toBe("该域名不存在，可能已被删除。");
+  });
+
+  it("shows only the Chinese explanation under the field it is about", () => {
+    const message = messageOf(() => validateUpstream("http://o.test", "g.test"));
+    const { text, field, detail } = describeGateError(
+      { status: 400, message },
+      true,
+    );
+    expect(field).toBe("upstream");
+    expect(detail).toBe("源站地址必须使用 https:// 协议。");
+    expect(text).toBe(`${detail}（原始信息：${message}）`);
   });
 
   it("explains HTTP and network failures in Chinese", () => {
@@ -203,6 +227,58 @@ describe("admin console gate errors", () => {
     );
     expect(loginErrorText("weird")).toBe("登录失败：weird");
     expect(loginErrorText(null)).toBe("");
+  });
+});
+
+describe("admin console site errors", () => {
+  it("maps every site validation message to a Chinese explanation and its field", () => {
+    const cases = [
+      [() => validateName(""), "name"],
+      [() => validateName("x".repeat(81)), "name"],
+      [() => validateOrigins("https://a.test"), "origins"],
+      [() => validateOrigins(["not a url"]), "origins"],
+      [() => validateOrigins(["https://a.test/app"]), "origins"],
+      [() => validateOrigins(["http://a.test"]), "origins"],
+      [
+        () =>
+          validateOrigins(
+            Array.from({ length: MAX_ORIGINS + 1 }, (_, i) => `https://a${i}.test`),
+          ),
+        "origins",
+      ],
+      [() => validateSettings({ challengeDifficulty: 99 }), "challengeDifficulty"],
+      [() => validateSettings({ challengeCount: 0 }), "challengeCount"],
+      [() => validateSettings({ tokenTtlMs: 1 }), "tokenTtlMinutes"],
+    ];
+    for (const [fn, field] of cases) {
+      const message = messageOf(fn);
+      const described = describeSiteError({ status: 400, message });
+      expect([message, described.field]).toEqual([message, field]);
+      expect(described.text).not.toContain("原始信息");
+      expect(described.text).toMatch(/。$/);
+    }
+    // admin/api.js's own messages.
+    expect(
+      describeSiteError({ status: 400, message: "at least one origin is required" }),
+    ).toEqual({ text: "至少需要填写一个允许的域名。", field: "origins" });
+    expect(
+      describeSiteError({ status: 400, message: "at most 200 sites" }),
+    ).toEqual({ text: "站点数量已达上限，请先删除不再使用的站点。", field: null });
+    expect(SITE_SETTING_RANGES.challengeDifficulty).toEqual([1, 16]);
+  });
+
+  it("reads 404 in Chinese and falls back to the general text with the original", () => {
+    expect(siteFailureText("disable", { status: 404, message: "site not found" }))
+      .toBe("停用失败：该站点不存在，可能已被删除。");
+    expect(siteFailureText("rotate", { status: 500, message: "boom" })).toBe(
+      "轮换失败：服务内部错误，请稍后重试。（原始信息：boom）",
+    );
+    expect(
+      siteFailureText("load", { status: null, message: "Failed to fetch" }),
+    ).toBe("站点列表加载失败：网络连接异常，请稍后重试。（原始信息：Failed to fetch）");
+    expect(
+      siteFailureText("delete", { status: 400, message: "something new" }),
+    ).toBe("删除失败：提交的内容未通过校验。（原始信息：something new）");
   });
 });
 
