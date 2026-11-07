@@ -327,7 +327,7 @@ export function renderAdminPage({ nonce, ripple }) {
         <label class="field">
           <span class="field-label">放行路径</span>
           <textarea class="input" name="exemptPaths" spellcheck="false" placeholder="/api/webhook&#10;/static/"></textarea>
-          <span class="field-hint">每行一条，最多 50 条。以 / 结尾的路径按前缀匹配，其余按完整路径匹配。命中的请求无需验证，直接转发至源站。</span>
+          <span class="field-hint">每行一条，最多 50 条。以 / 结尾的条目按前缀匹配；其余条目匹配该路径本身及其下级路径（如 /api 同时匹配 /api/v1）。命中的请求无需验证，直接转发至源站。</span>
         </label>
         <div class="switch-row">
           <span class="switch-text">

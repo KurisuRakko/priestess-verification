@@ -217,6 +217,15 @@ textarea.input {
   outline-offset: 1px;
 }
 
+/* The field a gate save error is about (admin.client.js, markGateInvalid). */
+.input[aria-invalid="true"] {
+  border-color: var(--color-error);
+}
+
+.input[aria-invalid="true"]:focus-visible {
+  outline-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+}
+
 .check {
   display: flex;
   align-items: center;

@@ -505,20 +505,32 @@
     return `${date.getMonth() + 1}月${date.getDate()}日`;
   }
 
-  function dateTimeText(iso) {
-    const d = new Date(iso);
-    return `${dayText(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  function clockText(date) {
+    return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
   }
 
-  // Bucket names in local time: axis ticks are short, tooltips spell it out.
-  function bucketText(iso, bucket, long) {
+  function dateTimeText(iso) {
     const d = new Date(iso);
+    return `${dayText(d)} ${clockText(d)}`;
+  }
+
+  // Bucket names: axis ticks are short, tooltips and the table spell it out.
+  // Hour buckets are named in the browser's local time (with minutes, so a
+  // half-hour zone reads 10:30–11:30). Day buckets follow the API's day
+  // boundaries, which use `tz` rounded to a whole hour: in UTC+5:30 a "day"
+  // starts at 23:30 local time the evening before, so its date is read in
+  // that rounded offset rather than from the local clock.
+  function bucketText(iso, bucket, long, tz) {
     if (bucket !== "hour") {
-      return long ? dayText(d) : `${d.getMonth() + 1}/${d.getDate()}`;
+      const d = new Date(Date.parse(iso) + (tz || 0) * 60_000);
+      const month = d.getUTCMonth() + 1;
+      const day = d.getUTCDate();
+      return long ? `${month}月${day}日` : `${month}/${day}`;
     }
-    const start = `${pad2(d.getHours())}:00`;
-    if (!long) return start;
-    return `${dayText(d)} ${start}–${pad2((d.getHours() + 1) % 24)}:00`;
+    const start = new Date(iso);
+    if (!long) return clockText(start);
+    const end = new Date(start.getTime() + 3_600_000);
+    return `${dayText(start)} ${clockText(start)}–${clockText(end)}`;
   }
 
   const stats = { range: "24h", site: "", seq: 0, data: null, active: -1 };
@@ -717,7 +729,7 @@
           y: height - 8,
           "text-anchor": "middle",
         });
-        tick.textContent = bucketText(row.t, bucket, false);
+        tick.textContent = bucketText(row.t, bucket, false, stats.data.tz);
         root.append(tick);
       }
       const hit = svg("rect", {
@@ -767,7 +779,12 @@
     const slot = chart.slots[index];
     chart.band.setAttribute("x", slot.x);
     chart.band.setAttribute("visibility", "visible");
-    const title = bucketText(row.t, stats.data.bucket, true);
+    const title = bucketText(
+      row.t,
+      stats.data.bucket,
+      true,
+      stats.data.tz,
+    );
     const lines = [
       ["验证通过", fmt(row.redeem_ok), "is-ok"],
       ["验证失败", fmt(row.redeem_fail), "is-fail"],
@@ -869,7 +886,7 @@
           {},
           cells(
             [
-              bucketText(row.t, bucket, true),
+              bucketText(row.t, bucket, true, stats.data.tz),
               fmt(row.redeem_ok),
               fmt(row.redeem_fail),
               passRate(row),
@@ -1019,19 +1036,59 @@
   let gateHosts = [];
   let gateEditing = null;
 
+  // The gate API's 400 messages (gate-hosts.js, gate-api.js) name the field
+  // they are about. The first rule whose text occurs in the lowercased message
+  // gives the field to mark and the explanation; admin-ui.test.js runs every
+  // backend message through this table. Kept as plain JSON for that test.
+  const GATE_ERROR_RULES = [
+    ["this service's own host", "host", "该域名是本服务自身的域名，不能设为网关域名。"],
+    ["host must be a bare hostname", "host", "域名格式无效，应为小写主机名，不含协议、端口与路径。"],
+    ["gate hosts", "host", "网关域名数量已达上限，请先删除不再使用的域名。"],
+    ["upstream must not point at the host itself", "upstream", "源站地址不能指向该域名本身。"],
+    ["upstream must use https", "upstream", "源站地址必须使用 https:// 协议。"],
+    ["upstream must be a bare origin", "upstream", "源站地址不能包含路径、查询参数或片段。"],
+    ["upstream", "upstream", "源站地址格式无效，应为以 https:// 开头的地址。"],
+    ["exempt path must not be /", "exemptPaths", "放行路径不能为 /，否则整个域名都将免于验证。"],
+    ["exempt path must not be under", "exemptPaths", "放行路径不能位于 /__gate/ 之下。"],
+    ["must not contain", "exemptPaths", "放行路径不能包含 ?、#、.. 或空白字符。"],
+    ["characters", "exemptPaths", "每条放行路径不能超过 256 个字符。"],
+    ["starting with /", "exemptPaths", "每条放行路径都必须以 / 开头。"],
+    ["exempt paths", "exemptPaths", "放行路径最多 50 条。"],
+    ["exemptpaths", "exemptPaths", "放行路径格式无效。"]
+  ];
+
+  // -> { text, field }: `field` is the form control the error is about.
   function describeGateError(error, creating) {
-    let invalid = "提交的内容未通过校验。";
     const raw = (error.message || "").toLowerCase();
-    if (/exempt|path/.test(raw)) invalid = "放行路径不符合要求。";
-    else if (raw.includes("upstream")) invalid = "源站地址不符合要求。";
-    else if (raw.includes("host")) invalid = "域名不符合要求。";
-    return describeError(error, {
-      400: invalid,
+    const rule =
+      error.status === 400
+        ? GATE_ERROR_RULES.find(([needle]) => raw.includes(needle))
+        : null;
+    const text = describeError(error, {
+      400: rule ? rule[2] : "提交的内容未通过校验。",
       404: "该域名不存在，可能已被删除。",
       409: creating
         ? "该域名已存在于后台或部署配置中。"
         : "该域名由部署配置定义，无法在后台修改。",
     });
+    const field = rule ? rule[1] : creating && error.status === 409 ? "host" : null;
+    return { text, field };
+  }
+
+  function clearGateInvalid() {
+    for (const control of $("gate-form").querySelectorAll("[aria-invalid]")) {
+      control.removeAttribute("aria-invalid");
+      control.removeAttribute("aria-describedby");
+    }
+  }
+
+  function markGateInvalid(field) {
+    clearGateInvalid();
+    const control = field ? $("gate-form").elements[field] : null;
+    if (!control) return;
+    control.setAttribute("aria-invalid", "true");
+    control.setAttribute("aria-describedby", "gate-form-error");
+    control.focus();
   }
 
   async function loadGate() {
@@ -1102,6 +1159,7 @@
     const f = form.elements;
     form.reset();
     $("gate-form-error").hidden = true;
+    clearGateInvalid();
     $("gate-dialog-title").textContent = !host
       ? "添加域名"
       : readOnly
@@ -1124,6 +1182,13 @@
   }
 
   $("new-gate").addEventListener("click", () => openGateDialog(null));
+  // Editing a marked field takes its error mark away; the notice stays until
+  // the next save attempt.
+  $("gate-form").addEventListener("input", (event) => {
+    if (event.target.getAttribute?.("aria-invalid") !== "true") return;
+    event.target.removeAttribute("aria-invalid");
+    event.target.removeAttribute("aria-describedby");
+  });
   $("gate-delete").addEventListener("click", () => deleteGate(gateEditing));
 
   $("gate-form").addEventListener("submit", async (event) => {
@@ -1158,10 +1223,9 @@
       await loadGate();
     } catch (error) {
       if (error.message === "unauthenticated") return;
-      showNotice(
-        $("gate-form-error"),
-        `保存失败：${describeGateError(error, creating)}`,
-      );
+      const { text, field } = describeGateError(error, creating);
+      showNotice($("gate-form-error"), `保存失败：${text}`);
+      markGateInvalid(field);
     }
   });
 
@@ -1179,7 +1243,7 @@
       await loadGate();
     } catch (error) {
       if (error.message === "unauthenticated") return;
-      const message = `删除失败：${describeGateError(error, false)}`;
+      const message = `删除失败：${describeGateError(error, false).text}`;
       if ($("gate-dialog").open) showNotice($("gate-form-error"), message);
       else showNotice($("gate-error"), message);
     }
