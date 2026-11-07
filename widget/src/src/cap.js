@@ -2404,9 +2404,20 @@
     }
 
     handleError(event) {
+      // Same "unsupported" class as the gate page (worker/web/src/gate/failure.ts):
+      // no WebAssembly, an unknown challenge protocol, or a hashwx.wasm that
+      // would not load or compile. Retrying cannot help, so say so.
+      const { code, message } = event?.detail || {};
+      const unsupported =
+        code === "challenge_unsupported" ||
+        /requires webassembly|unsupported format-2 protocol|malformed hashwx|hashwx wasm|webassembly|compileerror/i.test(
+          String(message || ""),
+        );
       this.updateUI(
         "error",
-        this.getI18nText("error-label", "Error. Try again."),
+        unsupported
+          ? this.getI18nText("unsupported-label", "Browser not supported")
+          : this.getI18nText("error-label", "Error. Try again."),
       );
       this.executeAttributeCode("onerror", event);
 
