@@ -1,12 +1,18 @@
 /* rk-segments / rk-segment 视觉移植自 showcase motion.css 的
-   .motion-segments / .motion-segment span。选中（data-checked）同时改变
-   淡底与字色；state-layer 的 focus outline 缩到框内（overflow hidden 会裁掉外部 outline）。 */
+   .motion-segments / .motion-segment span。选中的淡底是一块滑块（.rk-segments__thumb，
+   segmented-choice.tsx 用 snappy 弹簧把它 translate / scale 到选中项下面），字色由
+   data-checked 切换；state-layer 的 focus outline 缩到框内（overflow hidden 会裁掉外部 outline）。 */
 
 .rk-segments {
+  position: relative;
   display: flex;
   overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border: var(--rk-segments-border, 1px) solid var(--color-border);
+  /* 外框是可点击控件：控件档 6px。滑块与选项按同心公式推导（内缩 = 描边，没有内边距），即 max(6 − 1, 2) = 5px；
+     项目覆盖 --rk-segments-radius 即可，内部跟着变 */
+  border-radius: var(--rk-segments-radius, var(--radius-control));
+  --rk-radius-outer: var(--rk-segments-radius, var(--radius-control));
+  --rk-radius-inset: var(--rk-segments-border, 1px);
   background: var(--color-paper);
 }
 
@@ -24,9 +30,37 @@
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+  /* 禁用 / 解除禁用时的 0.45 透明度（state-layer）也走状态时长淡入淡出，不硬切 */
   transition:
-    background-color var(--motion-duration-state) var(--motion-ease-standard),
-    color var(--motion-duration-state) var(--motion-ease-standard);
+    color var(--motion-duration-state) var(--motion-ease-standard),
+    opacity var(--motion-duration-state) var(--motion-ease-standard);
+}
+
+/* 滑块：位置与宽度全由 inline translate / width 给（宽度取选中项的实测值，不做 scaleX，
+   圆角不会被横向拉伸）；量到选中项之前（data-ready 之前）不显示。排在分段前面，分段是定位元素
+   （state-layer），自然画在它上面；同心圆角：max(容器圆角 − 描边, --radius-2)（没有内边距），贴边时仍由 overflow: hidden 裁出外圈。 */
+.rk-segments__thumb {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: none;
+  box-sizing: border-box;
+  width: 0;
+  border-radius: max(var(--rk-radius-outer, var(--radius-container)) - var(--rk-radius-inset, 0px), var(--radius-2));
+  background: color-mix(in srgb, var(--color-accent) 9%, var(--color-paper));
+  pointer-events: none;
+  /* 只过渡透明度（选中项禁用时变淡）；translate / width 由 segmented-choice.tsx 用 WAAPI 弹簧驱动，不在这里 */
+  transition: opacity var(--motion-duration-state) var(--motion-ease-standard);
+}
+
+.rk-segments__thumb[data-ready] {
+  display: block;
+}
+
+/* 选中项被禁用时滑块跟着变淡，与 state-layer 里禁用项的 0.45 一致（以前淡底画在分段自己身上，会一起变淡） */
+.rk-segments:has(> .rk-segment[data-checked][data-disabled]) > .rk-segments__thumb {
+  opacity: 0.45;
 }
 
 .rk-segment + .rk-segment {
@@ -34,8 +68,34 @@
 }
 
 .rk-segment[data-checked] {
-  background: color-mix(in srgb, var(--color-accent) 9%, var(--color-paper));
   color: var(--color-accent);
+}
+
+/* 纵向（orientation="vertical" → aria-orientation）：分段上下堆叠，分隔线换到上边；
+   滑块横向铺满，纵向位置与高度由 segmented-choice.tsx 的 inline translate / height 给。 */
+.rk-segments[aria-orientation='vertical'] {
+  flex-direction: column;
+  /* 纵向堆叠时外框是一块多行容器：控件档的小圆角放到多行容器上显得局促，改用内容容器档 8px，内部仍按同心推导 */
+  border-radius: var(--rk-segments-radius, var(--radius-container));
+  --rk-radius-outer: var(--rk-segments-radius, var(--radius-container));
+  --rk-radius-inset: var(--rk-segments-border, 1px);
+}
+
+.rk-segments[aria-orientation='vertical'] > .rk-segment + .rk-segment {
+  border-top: 1px solid var(--color-border);
+  border-left: 0;
+}
+
+.rk-segments[aria-orientation='vertical'] > .rk-segments__thumb {
+  right: 0;
+  bottom: auto;
+  width: auto;
+  height: 0;
+}
+
+/* 选项的悬停 / 按压状态层与滑块同心（选项盒本身保持直角，分隔线才能是直的）。 */
+.rk-segment[data-ripple]::before {
+  border-radius: max(var(--rk-radius-outer, var(--radius-container)) - var(--rk-radius-inset, 0px), var(--radius-2));
 }
 
 /* 容器 overflow: hidden，焦点环改向内偏移以免被裁掉。 */
@@ -44,7 +104,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rk-segment {
+  .rk-segment,
+  .rk-segments__thumb {
     transition-duration: 1ms;
   }
 }

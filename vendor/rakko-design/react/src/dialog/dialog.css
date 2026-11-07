@@ -33,7 +33,10 @@
   max-height: calc(var(--rk-visual-height, 100%) - 32px);
   overflow-y: auto;
   padding: 24px;
-  border-radius: 12px;
+  /* 浮层档 12px；同心变量交给内容：贴边的子元素按 max(12 − 24 − 1, 2) 推导（data-glass="panel" 的 1px 边） */
+  border-radius: var(--radius-surface);
+  --rk-radius-outer: var(--radius-surface);
+  --rk-radius-inset: calc(24px + 1px);
   opacity: 1;
   transform: translate(-50%, -50%);
   /* 独立的 scale 属性排在 transform 之后作用：原点设到 0 0（= 位移后的面板中心），缩放才以面板中心为原点。 */
@@ -52,14 +55,16 @@
   scale: 1.08;
 }
 
-/* 退场时缩放比透明度收尾晚，这段时间面板已看不见：不再接点击，免得挡住刚露出来的页面。 */
+/* 退场的缩放与淡出同时长同曲线、一起收尾：Base UI 等最长的那条 transition 跑完才卸载，
+   缩放若还走 snappy 弹簧（约 475ms），面板 180ms 就看不见了，滚动锁、inert、焦点归还却要再拖约 0.3s。
+   top 只在键盘升降时变化，退场途中不跑，不拖卸载。退场中不接点击，免得挡住刚露出来的页面。 */
 .rk-dialog[data-ending-style] {
   opacity: 0;
   scale: 0.96;
   pointer-events: none;
   transition:
     opacity var(--motion-duration-exit) var(--motion-ease-standard),
-    scale var(--motion-spring-snappy-duration) var(--motion-spring-snappy),
+    scale var(--motion-duration-exit) var(--motion-ease-standard),
     top var(--motion-spring-smooth-duration) var(--motion-spring-smooth);
 }
 

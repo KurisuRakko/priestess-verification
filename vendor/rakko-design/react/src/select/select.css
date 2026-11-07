@@ -16,7 +16,8 @@
   min-width: 160px;
   padding: 9px 12px;
   border: 1px solid var(--color-border);
-  border-radius: 12px;
+  /* 触发器是可点击控件：控件档 6px */
+  border-radius: var(--radius-control);
   background: var(--color-paper);
   color: var(--color-neutral-9);
   font: inherit;
@@ -53,9 +54,13 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   /* 键盘高亮把选项滚入视野时，留出与 padding 相同的 4px，不贴边 */
-  scroll-padding-block: 4px;
-  padding: 4px;
-  border-radius: 8px;
+  scroll-padding-block: var(--rk-select-padding, 4px);
+  /* 浮层档 12px；同心圆角：选项按 max(弹层圆角 − 内边距 − 描边, --radius-2) 推导（描边是 data-glass="panel" 的 1px 边），
+     项目只覆盖 --rk-select-radius 即可 */
+  padding: var(--rk-select-padding, 4px);
+  border-radius: var(--rk-select-radius, var(--radius-surface));
+  --rk-radius-outer: var(--rk-select-radius, var(--radius-surface));
+  --rk-radius-inset: calc(var(--rk-select-padding, 4px) + var(--rk-select-border, 1px));
   opacity: 1;
   transition:
     opacity var(--motion-duration-enter) var(--motion-ease-standard),
@@ -79,7 +84,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: max(var(--rk-radius-outer, var(--radius-container)) - var(--rk-radius-inset, 0px), var(--radius-2));
   color: var(--color-neutral-9);
   font-size: 13px;
   line-height: 1.4;
@@ -96,6 +101,11 @@
     var(--color-neutral-10) var(--state-hover-opacity),
     transparent
   );
+}
+
+/* 同 Menu：键盘焦点只用高亮底色表示，state-layer 的外扩焦点环会压到相邻选项 */
+.rk-select__popup .rk-select__item:focus-visible {
+  outline: none;
 }
 
 .rk-select__item[data-selected] {
@@ -136,5 +146,13 @@
   .rk-select__popup[data-ending-style] {
     transition-duration: 1ms;
     translate: none;
+  }
+}
+
+/* 强制颜色模式下高亮底色会被抹掉：用描在选项内侧的轮廓标焦点 */
+@media (forced-colors: active) {
+  .rk-select__popup .rk-select__item[data-highlighted] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
   }
 }

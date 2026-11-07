@@ -3,24 +3,35 @@
 
 .rk-skeleton {
   display: block;
+  position: relative;
   box-sizing: border-box;
+  /* 裁掉扫出边界的微光，圆形 / 圆角块按各自圆角裁切 */
+  overflow: hidden;
   background-color: var(--color-neutral-3);
+}
+
+/* 微光放在伪元素上用 transform 平移：只走合成，不像动 background-position 那样每帧重绘。
+   伪元素与骨架等宽，渐变带占中间 60%（20%–80%），从 -80% 平移到 80% 正好从左缘外扫到右缘外。
+   无限循环用 linear：缓动曲线会让每一圈两头各停一下，看着一顿一顿的。 */
+.rk-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
   background-image: linear-gradient(
     90deg,
-    transparent 0%,
+    transparent 20%,
     color-mix(in srgb, var(--color-neutral-2) 70%, transparent) 50%,
-    transparent 100%
+    transparent 80%
   );
-  background-repeat: no-repeat;
-  background-size: 60% 100%;
-  background-position: -150% 0;
-  animation: rk-skeleton-shimmer 1.6s var(--motion-ease-standard) infinite;
+  transform: translateX(-80%);
+  animation: rk-skeleton-shimmer 1.6s linear infinite;
 }
 
 .rk-skeleton[data-variant='text'] {
   width: 100%;
   height: 0.8em;
-  border-radius: 4px;
+  /* 例外：文字行占位代表一行字，不是控件，保持 4px */
+  border-radius: var(--radius-4);
 }
 
 /* 多行文字条：行距按正文 1.57 行高留白，最后一行收窄，像一段没写满的话。 */
@@ -44,21 +55,22 @@
 .rk-skeleton[data-variant='rect'] {
   width: 100%;
   height: 80px;
-  border-radius: 6px;
+  /* 块占位代表卡片 / 媒体：内容容器档 */
+  border-radius: var(--radius-container);
 }
 
 @keyframes rk-skeleton-shimmer {
   from {
-    background-position: -150% 0;
+    transform: translateX(-80%);
   }
   to {
-    background-position: 250% 0;
+    transform: translateX(80%);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rk-skeleton {
+  .rk-skeleton::after {
+    content: none;
     animation: none;
-    background-image: none;
   }
 }

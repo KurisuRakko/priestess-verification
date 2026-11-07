@@ -16,8 +16,10 @@
  *     已经由 SwipeRow removing 收拢过的行（data-removing）直接删；所在父组也一起不见了的、一次消失太多的也直接不见。
  *     其余元素 FLIP 补位。
  *   - resetKey 变化（换了视图，如进入 / 退出搜索）：不做逐行 FLIP。crossfade 时先让旧内容的快照淡出，
- *     再让新内容淡入，两段不重叠：任何一帧都只有一层文字。快照放在容器里绝对定位（容器 position: relative），
- *     跟着布局走：大标题、搜索框同时在收放，快照随容器一起移动，不会钉在原地和新内容错位。
+ *     淡出进行到 60% 时新内容用减速曲线淡入（节奏与 SwapText 共用 swap-timing.ts），不留空白帧。
+ *     快照放在容器里绝对定位（容器 position: relative），跟着布局走：大标题、搜索框同时在收放，
+ *     快照随容器一起移动，不会钉在原地和新内容错位。连着换视图时按 planSwap 接着走：上一次的新内容还没露面就
+ *     顶替它按原定时刻进场；淡入到一半就不再留快照，新内容从当前透明度接着淡到 1，不闪。
  *   - 减弱动态效果：全部不动画。
  *
  * 用类组件是为了 getSnapshotBeforeUpdate：React 改 DOM 之前量旧位置（hook 做不到）。
@@ -36,6 +38,15 @@ import { cx } from '../cx'
 import { MOTION } from '../motion'
 import { reducedMotionQuery } from '../motion-dom'
 import { SPRINGS, springEasing } from '../spring'
+import {
+  SWAP_EASE_ENTER,
+  SWAP_SETTLED_OPACITY,
+  opacityOf,
+  planSwap,
+  resumeMs,
+  swapEnterDelay,
+  swapFadeMs,
+} from '../swap-text/swap-timing'
 import {
   FLIP_APPEAR_ID,
   FLIP_COLLAPSE_ATTR,
@@ -83,8 +94,6 @@ type Snapshot =
 
 /** 一次出现 / 消失超过这么多个就不逐个展开或收拢：出现的只淡入，消失的直接不见。 */
 export const MAX_EXPAND = 8
-/** 交叉淡化里旧快照淡出占 exit 时长的比例：比新内容淡入快，两段不重叠。 */
-const GHOST_FADE_RATIO = 0.6
 const GHOST_CLASS = 'rk-animated-list__ghost'
 /** 克隆里要去掉的标记：免得被量到、被长按命中、id 重复。 */
 const STRIP_ATTRS = [FLIP_KEY_ATTR, FLIP_ROOT_ATTR, 'data-context-id', 'data-context-action', 'id']
@@ -113,6 +122,10 @@ export class AnimatedList extends Component<AnimatedListProps> {
   private moves = new Map<HTMLElement, Animation>()
   /** 交叉淡化里新内容的淡入：再次换视图时先停掉。 */
   private fades = new Set<Animation>()
+  /** 交叉淡化里正在淡出的旧内容快照（也在 ghosts 里）。 */
+  private swapGhost: HTMLElement | null = null
+  /** 上一次交叉淡化排定的新内容进场时刻（performance.now() 时基），没排过为 0。 */
+  private enterAt = 0
   /** 一次量取里元素 → 父参照（closest 只查一次）；量完清空。 */
   private parents = new Map<HTMLElement, HTMLElement>()
 
@@ -169,14 +182,14 @@ export class AnimatedList extends Component<AnimatedListProps> {
       const content = Array.from(root.children).filter(
         (el) => !this.ghosts.has(el as HTMLElement) && !el.hasAttribute(SWAP_GHOST_ATTR),
       )
-      if (!this.props.crossfade || content.length === 0) return { kind: 'reset', ghost: null, opacity: 1 }
+      // 上一次换视图的淡入还没走完：记下当前透明度，新内容从这里接着走（见 crossfade）
+      const opacity = content.reduce((min, el) => Math.min(min, opacityOf(el)), 1)
+      // 没稳定的旧内容不留快照（planSwap 的 wait / resume），省一次整棵克隆
+      if (!this.props.crossfade || content.length === 0 || opacity < SWAP_SETTLED_OPACITY) {
+        return { kind: 'reset', ghost: null, opacity }
+      }
       const ghost = root.cloneNode(false) as HTMLElement
       for (const el of content) ghost.appendChild(el.cloneNode(true))
-      // 上一次交叉淡化的淡入还没走完：快照从当前透明度开始淡出，不闪
-      const opacity = content.reduce((min, el) => {
-        const value = Number.parseFloat(getComputedStyle(el).opacity)
-        return Math.min(min, Number.isFinite(value) ? value : 1)
-      }, 1)
       return { kind: 'reset', ghost, opacity }
     }
     // 行的集合、顺序、分组都没变：位置不会动，不量（量一次就是每行一次强制布局）
@@ -208,39 +221,66 @@ export class AnimatedList extends Component<AnimatedListProps> {
   private clearGhosts(): void {
     for (const ghost of this.ghosts) ghost.remove()
     this.ghosts.clear()
+    this.swapGhost = null
   }
 
   private crossfade(ghost: HTMLElement | null, opacity: number): void {
     const root = this.root.current
     if (!root) return
-    this.clearGhosts()
+    const plan = planSwap(opacity, this.enterAt)
+    // wait：上一次的新内容还没露面，它的旧快照还在淡出——留着那份快照，新内容顶替上一次的按原定时刻进场
+    const kept = plan.kind === 'wait' ? this.swapGhost : null
+    for (const other of this.ghosts) if (other !== kept) other.remove()
+    this.ghosts.clear()
+    this.swapGhost = kept
+    if (kept) this.ghosts.add(kept)
     // 换视图时旧内容由这里的快照淡出：同一次提交里应用留下的淡出拷贝摘掉，不叠两层
     for (const el of root.querySelectorAll(`:scope > [${SWAP_GHOST_ATTR}]`)) el.remove()
-    const content = Array.from(root.children) as HTMLElement[]
+    const content = (Array.from(root.children) as HTMLElement[]).filter((el) => el !== kept)
     for (const anim of this.fades) anim.cancel()
     this.fades.clear()
-    const easing = MOTION.easeStandard
-    // 旧内容先淡出（快），新内容等它淡完再淡入：两段不重叠
+    // 旧内容先淡出，淡到一成左右新内容就用减速曲线淡入：不留空白帧
     let delay = 0
-    if (ghost && opacity > 0.01) {
+    let from = 0
+    if (plan.kind === 'wait') {
+      delay = plan.delay
+    } else if (plan.kind === 'resume') {
+      // 上一次的淡入播到一半：不留快照（上一份快照已在上面摘掉），新内容从当前透明度接着淡到 1
+      from = plan.from
+      this.enterAt = 0
+    } else if (ghost) {
       neutralize(ghost)
       ghost.classList.add(GHOST_CLASS)
       // 盖在容器内容区原位（容器 position: relative）：跟着容器走，不占布局
       Object.assign(ghost.style, { position: 'absolute', top: '0', left: '0', right: '0', margin: '0' })
       root.prepend(ghost)
       this.ghosts.add(ghost)
-      delay = Math.round(MOTION.durationExitMs * GHOST_FADE_RATIO)
-      const fade = ghost.animate({ opacity: [opacity, 0] }, { duration: delay, easing, fill: 'forwards' })
+      this.swapGhost = ghost
+      const fade = ghost.animate(
+        { opacity: [opacity, 0] },
+        { duration: swapFadeMs(), easing: MOTION.easeStandard, fill: 'forwards' },
+      )
       const done = () => {
         ghost.remove()
         this.ghosts.delete(ghost)
+        if (this.swapGhost === ghost) this.swapGhost = null
       }
       fade.finished.then(done, done)
+      delay = swapEnterDelay()
+      this.enterAt = performance.now() + delay
+    } else {
+      this.enterAt = 0
     }
     for (const el of content) {
       const anim = el.animate(
-        { opacity: [0, 1] },
-        { duration: MOTION.durationEnterMs, delay, easing, fill: 'backwards', id: FLIP_FADE_ID },
+        { opacity: [from, 1] },
+        {
+          duration: resumeMs(MOTION.durationEnterMs, from),
+          delay,
+          easing: SWAP_EASE_ENTER,
+          fill: 'backwards',
+          id: FLIP_FADE_ID,
+        },
       )
       this.fades.add(anim)
       const settle = () => this.fades.delete(anim)

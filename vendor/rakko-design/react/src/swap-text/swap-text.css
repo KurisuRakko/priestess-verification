@@ -6,7 +6,7 @@
   animation: none !important;
 }
 
-/* crossfade：新旧两份叠在同一个格子里，宽度取较宽的，换字过程中不跳 */
+/* crossfade：新旧两份叠在同一个格子里，宽度取较宽的，换字过程中不跳（淡入淡出由 swap-text.tsx 用 WAAPI 起，接得上当前亮度） */
 .rk-swap-text--crossfade {
   display: inline-grid;
   max-width: 100%;
@@ -22,34 +22,14 @@
   white-space: nowrap;
 }
 
-.rk-swap-text__in {
-  animation: rk-swap-text-in var(--motion-duration-state) var(--motion-ease-standard) both;
-}
-
 .rk-swap-text__out {
   pointer-events: none;
-  animation: rk-swap-text-out var(--motion-duration-state) var(--motion-ease-standard) both;
 }
 
-@keyframes rk-swap-text-in {
-  from {
-    opacity: 0;
-  }
-}
-
-@keyframes rk-swap-text-out {
-  to {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  /* 直接换字：新字不淡入，旧字不画（没有动画就没有 animationend，留着的那份等下次换字时被替换） */
-  .rk-swap-text__in {
-    animation: none;
-  }
-
-  .rk-swap-text__out {
-    display: none;
-  }
+/* wrap：crossfade 按正常文本折行，不截断、不省略；两份同在一格，行高取较高的一份，换字过程中不跳 */
+.rk-swap-text--wrap .rk-swap-text__in,
+.rk-swap-text--wrap .rk-swap-text__out {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }

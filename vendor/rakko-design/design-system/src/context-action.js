@@ -59,15 +59,29 @@ export function isContextActionIgnoredTarget(target) {
   return Boolean(target?.closest?.(IGNORE_SELECTOR))
 }
 
-/* 表面自身就落在忽略集合里（行本身是 <button>、可拖拽的行带 draggable='true'）时，
-   长按照旧不参与（按钮与拖拽保留自己的触摸行为），右键却不该落空：没有别的可交互元素
-   挡在中间——从目标往上最近的忽略元素正是表面自身——且表面以上也不在忽略区时，
-   contextmenu 仍按这个表面打开。 */
-function isSelfIgnoredSurface(target, surface) {
-  return (
-    target?.closest?.(IGNORE_SELECTOR) === surface &&
-    !isContextActionIgnoredTarget(surface.parentElement)
-  )
+/* 表面自身不算进忽略集合：带了 data-context-action 就是明确要长按，哪怕它自己是 <button> 或
+   role="button"（SwipeRow 传了 onPress 的内容层就是）——2026-10-24 前整个跳过，所有可点的行长按都失效。
+   唯一例外是可拖拽的表面（draggable='true'）：触屏浏览器的原生拖放同样靠长按起手，与 500ms 的判定直接冲突，
+   长按仍交给拖放，右键照常打开。 */
+const SELF_IGNORE_SELECTOR = "[draggable='true']"
+
+function isWithin(element, ancestor) {
+  for (let node = element; node; node = node.parentElement) {
+    if (node === ancestor) return true
+  }
+  return false
+}
+
+/**
+ * 这次按压该不该交给目标自己：命中点到表面之间（不含表面）有行内可交互元素 / 忽略区，
+ * 或表面整个落在忽略区里（例如编辑区里的块），都不参与。gesture 为 'press'（长按）时
+ * 可拖拽的表面也不参与；右键（'menu'）照常。
+ */
+function isIgnoredForSurface(target, surface, gesture) {
+  const hit = target?.closest?.(IGNORE_SELECTOR)
+  if (hit && hit !== surface && isWithin(hit, surface)) return true
+  if (isContextActionIgnoredTarget(surface.parentElement)) return true
+  return gesture === 'press' && Boolean(surface.closest?.(SELF_IGNORE_SELECTOR) === surface)
 }
 
 function findSurface(target, root) {
@@ -150,10 +164,8 @@ export function installContextAction(options) {
       resetTracking()
       return
     }
-    if (isContextActionIgnoredTarget(event.target)) return
-
     const found = findSurface(event.target, root)
-    if (!found) return
+    if (!found || isIgnoredForSurface(event.target, found, 'press')) return
 
     opened = false
     pointerId = event.pointerId
@@ -199,8 +211,7 @@ export function installContextAction(options) {
 
   const onContextMenu = (event) => {
     const found = findSurface(event.target, root)
-    if (!found) return
-    if (isContextActionIgnoredTarget(event.target) && !isSelfIgnoredSurface(event.target, found)) return
+    if (!found || isIgnoredForSurface(event.target, found, 'menu')) return
 
     /* 无论哪条路径、是否被去重，原生菜单都不出现——呈现由消费方接管。 */
     event.preventDefault()

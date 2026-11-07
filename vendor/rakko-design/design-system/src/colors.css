@@ -1,0 +1,56 @@
+/*
+ * @rakko/design-system · color tokens (plain CSS)
+ *
+ * 浏览器可直接引入的颜色产物：不经 Tailwind，<link> 或 bundler 的 CSS import 即可用。
+ * 浅色值与 tokens.css 的 @theme 同值；深色值与 templates/scaffold.html、showcase 的
+ * [data-theme='dark'] 主题层同值（语义色 ~15% 提亮，accent 用 #e095a4）。
+ * 同一组值的 JS 版本在 colors.js，三处一致性由 scripts/colors.test.ts 锁定。
+ * 只放颜色：不含字体、组件样式与 @import。
+ */
+
+:root {
+  --color-accent: #c56473;
+
+  --color-neutral-1: #f9f8f5;
+  --color-neutral-2: #f0efeb;
+  --color-neutral-3: #e3e1db;
+  --color-neutral-4: #d0cec6;
+  --color-neutral-5: #a8a69f;
+  --color-neutral-6: #787670;
+  --color-neutral-7: #5c5a55;
+  --color-neutral-8: #403f3a;
+  --color-neutral-9: #24231f;
+  --color-neutral-10: #141312;
+
+  --color-paper: #faf9f5;
+  --color-border: rgba(24, 24, 27, 0.1);
+
+  --color-info: #3d6896;
+  --color-success: #5e9f7e;
+  --color-warning: #a87a3d;
+  --color-error: #a64953;
+}
+
+[data-theme="dark"],
+.dark {
+  --color-accent: #e095a4;
+
+  --color-neutral-1: #141414;
+  --color-neutral-2: #242424;
+  --color-neutral-3: #404040;
+  --color-neutral-4: #5c5c5c;
+  --color-neutral-5: #787878;
+  --color-neutral-6: #a8a8a8;
+  --color-neutral-7: #d0d0d0;
+  --color-neutral-8: #e3e3e3;
+  --color-neutral-9: #f0f0f0;
+  --color-neutral-10: #f8f8f8;
+
+  --color-paper: #1a1814;
+  --color-border: rgba(255, 255, 255, 0.1);
+
+  --color-info: #7090b3;
+  --color-success: #8cbea3;
+  --color-warning: #c8a06b;
+  --color-error: #c8767f;
+}

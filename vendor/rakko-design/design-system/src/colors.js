@@ -1,0 +1,43 @@
+// 与 colors.css 同值的 JS 版本，给需要颜色字面值的消费方（如 naive-ui themeOverrides）。
+// 键名是 CSS 变量去掉 --color- 前缀后的驼峰；一致性由 scripts/colors.test.ts 锁定。
+
+export const rakkoColors = {
+  light: {
+    accent: '#c56473',
+    neutral1: '#f9f8f5',
+    neutral2: '#f0efeb',
+    neutral3: '#e3e1db',
+    neutral4: '#d0cec6',
+    neutral5: '#a8a69f',
+    neutral6: '#787670',
+    neutral7: '#5c5a55',
+    neutral8: '#403f3a',
+    neutral9: '#24231f',
+    neutral10: '#141312',
+    paper: '#faf9f5',
+    border: 'rgba(24, 24, 27, 0.1)',
+    info: '#3d6896',
+    success: '#5e9f7e',
+    warning: '#a87a3d',
+    error: '#a64953',
+  },
+  dark: {
+    accent: '#e095a4',
+    neutral1: '#141414',
+    neutral2: '#242424',
+    neutral3: '#404040',
+    neutral4: '#5c5c5c',
+    neutral5: '#787878',
+    neutral6: '#a8a8a8',
+    neutral7: '#d0d0d0',
+    neutral8: '#e3e3e3',
+    neutral9: '#f0f0f0',
+    neutral10: '#f8f8f8',
+    paper: '#1a1814',
+    border: 'rgba(255, 255, 255, 0.1)',
+    info: '#7090b3',
+    success: '#8cbea3',
+    warning: '#c8a06b',
+    error: '#c8767f',
+  },
+}

@@ -5,9 +5,9 @@
 // 四档预设与 design-system/src/tokens.css 的 --motion-spring-* 一一对应，
 // 由 src/spring.test.ts 锁定：token 里的 linear() 串必须等于 springEasing(SPRINGS.x) 的输出。
 //
-// 曲线只有一个积分器（simulate），两种采样：
-//  - springEasing：固定预设，20–60 个等分点、三位小数，按参数缓存；token 由它生成，不能改。
-//  - springCurve：松手现算（初速度每次都不同），按帧采样、四位小数、不缓存，可以 clamp。
+// 两种曲线、两个积分器：
+//  - springEasing：固定预设，simulate（240Hz）积分，20–60 个等分点、三位小数，按参数缓存；token 由它生成，不能改。
+//  - springCurve：松手现算（初速度每次都不同），逐值照搬 RakkoNotes 的 1ms 积分器，按帧采样、四位小数、不缓存，可以 clamp。
 
 export interface SpringSpec {
   response: number
@@ -89,14 +89,17 @@ export interface SpringCurveOptions extends Partial<SpringSpec> {
   clamp?: boolean
 }
 
-/** springCurve 的采样间隔：一帧（60fps），即积分的每 4 步取一点。 */
-const CURVE_STEP = SIM_HZ / 60
-/** springCurve 的最长时长：初速度再大也不拖尾。 */
-const CURVE_MAX_SECONDS = 1.2
+/** springCurve 的采样间隔（ms）：一帧（60fps）。 */
+const CURVE_STEP_MS = 1000 / 60
+/** springCurve 的最长时长（ms）：初速度再大也不拖尾。 */
+const CURVE_MAX_MS = 1200
 
 /**
- * 带初速度的弹簧曲线（松手收尾用：导航右滑 settle、SwipeRow 回弹、FLIP 接续）。
- * 与 springEasing 同一个积分器；区别是不缓存、按帧采样、可 clamp，最长 1.2s（到时直接落到 1）。
+ * 带初速度的弹簧曲线（松手收尾用：导航右滑 settle、看图甩动、FLIP 接续）。
+ * 逐值照搬 RakkoNotes `lists/motion.ts` 的 springCurve（Rakko 认可的手感）：自己的积分器——1ms 一步的半隐式欧拉，
+ * 每过一帧（16.67ms）取一点，取点时 |x| < 0.001 且 |v| < 0.05 才算落定，最长 1.2s（到时直接落到 1），四位小数、不缓存、可 clamp。
+ * 不与 springEasing 共用 simulate（240Hz、落定阈值 |v| < 0.02）：那边生成 token，不能动；这边换步长会让过冲变小、时长变长
+ * （初速度 40 时过冲 1.24 对 1.31），见 docs/2026-10-24-lift-swipe-gaps.md。
  * 甩得快的起步陡、收尾短，慢慢拖的从静止起步。默认 response 0.42、damping 1（RakkoNotes 原值）。
  */
 export function springCurve({
@@ -105,16 +108,55 @@ export function springCurve({
   velocity = 0,
   clamp = false,
 }: SpringCurveOptions = {}): SpringEasing {
-  const { points } = simulate({ response, damping }, velocity, CURVE_MAX_SECONDS)
-  // 浮点累加的 t 可能在 1.2s 处多走一步，帧数按上限截住
-  const frames = Math.min(CURVE_MAX_SECONDS * 60, Math.max(1, Math.ceil((points.length - 1) / CURVE_STEP)))
-  const stops: number[] = [0]
-  for (let i = 1; i <= frames; i += 1) {
-    const p = points[Math.min(i * CURVE_STEP, points.length - 1)] ?? 1
-    stops.push(Math.round((clamp ? Math.min(p, 1) : p) * 10000) / 10000)
+  const stiffness = ((2 * Math.PI) / response) ** 2
+  const friction = (4 * Math.PI * damping) / response
+  // x：离终点的剩余距离（1 → 0）；v：x 的速度，与进度速度反号
+  let x = 1
+  let v = -velocity
+  const stops = [0]
+  const dt = 1 / 1000
+  let t = 0
+  let next = CURVE_STEP_MS
+  while (t < CURVE_MAX_MS) {
+    v += (-stiffness * x - friction * v) * dt
+    x += v * dt
+    t += 1
+    if (t >= next) {
+      const p = 1 - x
+      stops.push(Math.round((clamp ? Math.min(p, 1) : p) * 10000) / 10000)
+      next += CURVE_STEP_MS
+      if (Math.abs(x) < 0.001 && Math.abs(v) < 0.05) break
+    }
   }
   stops[stops.length - 1] = 1
-  return { easing: `linear(${stops.join(', ')})`, durationMs: Math.round((frames * 1000) / 60) }
+  return { easing: `linear(${stops.join(', ')})`, durationMs: Math.round((stops.length - 1) * CURVE_STEP_MS) }
+}
+
+/** 导航页弹簧的取点段数：照 RakkoNotes a4d14f0 的 --rn-spring-nav（24 段）。 */
+const PAGE_SEGMENTS = 24
+/** 落定阈值：离终点不到 0.001 即算落定（response 0.35 时是 515ms）。 */
+const PAGE_SETTLE = 0.001
+
+let pageCache: SpringEasing | null = null
+
+/**
+ * 导航栈推入 / 返回（含浏览器前进后退）的位移曲线，也是 --motion-spring-page token 的来源。
+ * 与 RakkoNotes 的 --rn-spring-nav 逐字一致：SPRINGS.page（response 0.35、临界阻尼）的解析解 x(t) = 1 − (1 + ωt)e^(−ωt)，
+ * 离终点不到 0.001 的那一毫秒为时长（515ms），等分 24 段、三位小数。
+ * 不用 springEasing(SPRINGS.page)（240Hz 数值积分、550ms）：同参数下它前 150ms 跑得更快（50ms 处约多 8.6px）、晚 35ms 落定。
+ * 其余三档预设（snappy / smooth / gentle）的 token 仍由 springEasing 生成。
+ */
+export function pageSpringEasing(): SpringEasing {
+  if (pageCache) return pageCache
+  const omega = (2 * Math.PI) / SPRINGS.page.response
+  const x = (ms: number) => 1 - (1 + (omega * ms) / 1000) * Math.exp((-omega * ms) / 1000)
+  let durationMs = 0
+  while (1 - x(durationMs) >= PAGE_SETTLE) durationMs += 1
+  const stops = ['0']
+  for (let i = 1; i < PAGE_SEGMENTS; i += 1) stops.push(String(Math.round(x((i / PAGE_SEGMENTS) * durationMs) * 1000) / 1000))
+  stops.push('1')
+  pageCache = { easing: `linear(${stops.join(', ')})`, durationMs }
+  return pageCache
 }
 
 /** 苹果的橡皮筋公式：越拉越沉，位移永远到不了 dimension。 */

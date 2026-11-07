@@ -1,7 +1,7 @@
 /* rk-swipe-row：左右滑动露出操作按钮的行（iOS 列表的 swipe actions）。
    位移只有一个来源：根上的 --rk-swipe-x。内容层 translateX、两侧按钮区宽度都由它推出；
    吸附时根带 data-settling，让 --rk-swipe-x 走弹簧过渡：曲线与时长由 SwipeRow 松手时按初速度现算
-   （springEasing(SPRINGS.snappy, v0)），写在根的 --rk-swipe-ease / --rk-swipe-duration 上；
+   （springCurve response 0.42 带初速度，照 RakkoNotes），写在根的 --rk-swipe-ease / --rk-swipe-duration 上；
    没写过时退回 --motion-spring-snappy。
    分隔线、卡片圆角由 list.css 负责（画在 .rk-swipe-row__content::after 上），这里不画。 */
 
@@ -13,11 +13,14 @@
 
 .rk-swipe-row {
   --rk-swipe-x: 0px;
+  /* 同心变量由组件自己设定，不继承祖先：长按缩小的行取行高亮默认值 --radius-row（8 − 0） */
+  --rk-radius-outer: var(--radius-row);
+  --rk-radius-inset: 0px;
   display: grid;
   grid-template-rows: 1fr;
   transition:
     grid-template-rows var(--motion-spring-smooth-duration) var(--motion-spring-smooth),
-    opacity var(--motion-duration-exit) var(--motion-ease-standard);
+    opacity var(--motion-spring-smooth-duration) var(--motion-ease-standard);
 }
 
 .rk-swipe-row[data-settling] {
@@ -25,10 +28,12 @@
     --rk-swipe-x var(--rk-swipe-duration, var(--motion-spring-snappy-duration))
       var(--rk-swipe-ease, var(--motion-spring-snappy)),
     grid-template-rows var(--motion-spring-smooth-duration) var(--motion-spring-smooth),
-    opacity var(--motion-duration-exit) var(--motion-ease-standard);
+    opacity var(--motion-spring-smooth-duration) var(--motion-ease-standard);
 }
 
-/* 移除：行高收起 + 淡出（smooth，与 AnimatedList 原位克隆的收拢同一节奏）；grid-template-rows 的 transitionend 后调 onRemoved */
+/* 移除：行高收起 + 淡出（smooth，与 AnimatedList 原位克隆的收拢同一节奏）；grid-template-rows 的 transitionend 后调 onRemoved。
+   淡出与行高同一个时长（smooth 弹簧的时长 + 标准缓动）：行高收到一半（约 120ms）时透明度还在 0.9，
+   收到九成五（约 300ms）时 0.3；用 exit 的 180ms 会在行高收一半之前就淡没，先看见空白再收拢。 */
 .rk-swipe-row[data-removing] {
   grid-template-rows: 0fr;
   opacity: 0;
@@ -41,7 +46,7 @@
     --rk-swipe-x var(--rk-swipe-duration, var(--motion-spring-snappy-duration))
       var(--rk-swipe-ease, var(--motion-spring-snappy)),
     grid-template-rows var(--motion-spring-smooth-duration) var(--motion-spring-smooth) 140ms,
-    opacity var(--motion-duration-exit) var(--motion-ease-standard) 140ms;
+    opacity var(--motion-spring-smooth-duration) var(--motion-ease-standard) 140ms;
 }
 
 /* 收起动画需要的内层：min-height 0 才能被 0fr 压扁；同时裁掉两侧按钮区 */
@@ -68,22 +73,24 @@
     scale var(--motion-spring-snappy-duration) var(--motion-spring-snappy);
 }
 
-/* 按下：只高亮，不缩放（iOS 列表行）；高亮即时出现、松手再淡出 */
+/* 按下：只高亮，不缩放（iOS 列表行）。在卡片底色上叠 8% 前景色（--color-neutral-10 随明暗翻转，深色下是叠浅色），
+   比通用的 --state-pressed-opacity（12%）浅一档；按下用半个状态时长淡入（比松开快一倍，跟手但不硬切）。
+   取值照 RakkoNotes lists.css 的 --rn-row-pressed 与按压节奏；--rk-swipe-pressed-bg 可在外层覆盖。 */
 .rk-swipe-row[data-pressed] .rk-swipe-row__content {
-  background: color-mix(
-    in srgb,
-    var(--color-neutral-10) var(--state-pressed-opacity),
-    var(--rk-list-bg, var(--color-neutral-2))
+  background: var(
+    --rk-swipe-pressed-bg,
+    color-mix(in srgb, var(--color-neutral-10) 8%, var(--rk-list-bg, var(--color-neutral-2)))
   );
-  transition-duration: 0s, var(--motion-spring-snappy-duration);
+  transition-duration: calc(var(--motion-duration-state) / 2), var(--motion-spring-snappy-duration);
 }
 
 /* 长按（内容层带 data-context-action 时）：缩到 .97，松手或菜单弹出时弹回 */
 .rk-swipe-row[data-holding] .rk-swipe-row__content {
   scale: 0.97;
-  border-radius: 10px;
+  /* 缩小后离开了卡片边缘：按同心公式取圆角（.rk-swipe-row 设定 12 − 0） */
+  border-radius: max(var(--rk-radius-outer, var(--radius-container)) - var(--rk-radius-inset, 0px), var(--radius-2));
   transition:
-    background-color 0s,
+    background-color calc(var(--motion-duration-state) / 2) var(--motion-ease-standard),
     scale var(--motion-spring-snappy-duration) var(--motion-spring-snappy);
 }
 
@@ -177,6 +184,29 @@
   padding-right: calc((1 - var(--rk-swipe-arm)) * max(0px, (100% / var(--rk-swipe-n) - 64px) / 2));
 }
 
+/* 滑出（slideOut）时只让被点的那个按钮铺满（data-slide-out），其余按钮保持原宽（74px，SWIPE_ACTION_WIDTH） */
+.rk-swipe-row[data-swiped-out] .rk-swipe-row__action {
+  flex: 0 0 74px;
+}
+
+.rk-swipe-row[data-swiped-out] .rk-swipe-row__action[data-slide-out] {
+  flex: 1 1 0;
+}
+
+/* 最外侧按钮滑出（full swipe 或点它，根上 data-armed）：其余按钮保持均分，免得在它铺满之前先缩回原宽、中间露出空档 */
+.rk-swipe-row[data-swiped-out][data-armed] .rk-swipe-row__actions[data-full-swipe] > .rk-swipe-row__action {
+  flex: 1 1 0;
+}
+
+/* 点了同侧非最外侧的滑出按钮：最外侧按钮和它的占位都保持原宽 */
+.rk-swipe-row[data-swiped-out]:not([data-armed]) .rk-swipe-row__actions[data-full-swipe] > .rk-swipe-row__action[data-outer] {
+  width: 74px;
+}
+
+.rk-swipe-row[data-swiped-out]:not([data-armed]) .rk-swipe-row__actions[data-full-swipe]::after {
+  flex: 0 0 74px;
+}
+
 .rk-swipe-row__action-inner {
   display: flex;
   flex-direction: column;
@@ -220,6 +250,7 @@
   .rk-swipe-row[data-removing][data-swiped-out],
   .rk-swipe-row__actions[data-full-swipe],
   .rk-swipe-row__content,
+  .rk-swipe-row[data-pressed] .rk-swipe-row__content,
   .rk-swipe-row[data-holding] .rk-swipe-row__content {
     transition: none;
   }

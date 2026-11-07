@@ -1,0 +1,40 @@
+/* 全局滚动条：细、安静，滑块是随明暗翻转的半透明前景色（neutral-10 叠 --scrollbar-thumb-opacity），轨道透明。
+   只改滚动条的样子，不改什么时候出现：不加 overflow: scroll，不滚动的元素照旧没有滚动条。
+
+   两套写法：
+   - 标准属性（Firefox、Chrome 121+、Safari 18.2+）：scrollbar-width: thin + scrollbar-color。
+     两个都挂在每个元素上（* 的特异度为 0，组件随时可覆盖）：scrollbar-width 不继承；scrollbar-color 虽然继承，
+     但继承的是算好的颜色，只写在 :root 上的话局部 [data-theme='dark'] 里的滚动条会拿到浅色主题的值。
+     支持标准属性的 Chromium 会忽略下面的 ::-webkit-scrollbar，两套不会叠加。
+   - ::-webkit-scrollbar 兜底（旧 Safari / 旧 Chromium）：8px 宽，滑块四周用 2px 透明边框 + background-clip 留出边距，
+     画成圆角胶囊；悬停加深。只在精确指针（鼠标 / 触控板）上启用：触屏（iOS / Android）保留系统的覆盖式滚动条，
+     自定义 ::-webkit-scrollbar 在 WebKit 上会把覆盖式滚动条换成占位的经典滚动条。
+
+   颜色：neutral-10 在深色主题里翻成浅色，同一个 color-mix 在两种主题下都是「前景色的一层淡影」，不另写深色块。 */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-neutral-10) var(--scrollbar-thumb-opacity), transparent) transparent;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--color-neutral-10) var(--scrollbar-thumb-opacity), transparent) padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--color-neutral-10) var(--scrollbar-thumb-hover-opacity), transparent);
+  }
+}

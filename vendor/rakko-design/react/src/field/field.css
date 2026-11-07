@@ -36,7 +36,8 @@
   position: relative;
   display: flex;
   border: 1px solid var(--rk-field-border);
-  border-radius: 12px;
+  /* 输入框是内容容器档 8px */
+  border-radius: var(--radius-container);
   background: var(--rk-field-bg);
   background-image: var(--rk-field-gradient);
   box-shadow: var(--rk-field-shadow);

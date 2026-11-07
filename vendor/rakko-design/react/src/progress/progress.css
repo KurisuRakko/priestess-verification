@@ -1,6 +1,8 @@
 /* rk-progress 视觉移植自 showcase motion.css 的 .motion-progress*：
    4px 线性轨道；Label 与 Value 同行（grid 两列），Track 独占一行。
-   Indicator 宽度由 Base UI 内联设置（与 aria-valuenow 同步）。 */
+   Indicator 撑满轨道，填充比例由 progress.tsx 写进 --rk-progress-scale（与 aria-valuenow 同算法），
+   用 transform: scaleX 缩放：只走合成，频繁更新也不重排。圆角由轨道 overflow: hidden 裁出，
+   Indicator 自己不带圆角（否则会被 scaleX 横向压扁）。 */
 
 .rk-progress {
   display: grid;
@@ -23,16 +25,23 @@
   grid-column: 1 / -1;
   height: 4px;
   overflow: hidden;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   background: var(--color-neutral-4);
 }
 
 .rk-progress__indicator {
   display: block;
   height: 100%;
-  border-radius: inherit;
   background: var(--color-accent);
-  transition: width var(--motion-duration-state) var(--motion-ease-standard);
+  transform: scaleX(var(--rk-progress-scale, 1));
+  transform-origin: left;
+  /* 进度会频繁更新：linear 让相邻两次更新首尾相接，不会每次都缓起缓停一顿一顿的。 */
+  transition: transform var(--motion-duration-state) linear;
+}
+
+/* 从行内起点（RTL 下是右侧）长出，与 Base UI 的 insetInlineStart 一致。 */
+.rk-progress__indicator:dir(rtl) {
+  transform-origin: right;
 }
 
 @media (prefers-reduced-motion: reduce) {

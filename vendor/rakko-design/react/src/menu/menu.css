@@ -1,5 +1,10 @@
 /* rk-menu 浮层视觉：paper 底 + border 描边 + whisper 阴影（契约的 ring-or-whisper 深度），
-   圆角 8px 与 .motion-chips 等 showcase 控件同级。 */
+   圆角走浮层档 --radius-surface（12px），与 LiftMenu、Select、ContextMenu、Submenu 一致（项按同心规则得 7px）。
+
+   同心圆角：弹层把自己的圆角写进 --rk-radius-outer，把内边距 + 描边（data-glass="panel" 的 1px 边）写进 --rk-radius-inset，
+   菜单项按 tokens.css 的同心公式 max(外圆角 − 内缩, --radius-2) 推导。三个旋钮照旧：
+   --rk-menu-radius（默认 12px）、--rk-menu-padding（默认 4px）、--rk-menu-border（默认 1px，只用于推导，边本身由 glass.css 画）。
+   项目只覆盖 --rk-menu-radius，项会跟着变；LiftMenu 用 --rk-lift-menu-radius（默认 12px）。 */
 
 /* Positioner 是 Popup 的父层（Base UI 的定位元素）：层级写在它身上，
    Popup 的 rk-* 类名仍然只属于 Popup，消费方的 className 也照旧追加在那里。 */
@@ -10,8 +15,10 @@
 .rk-menu {
   box-sizing: border-box;
   min-width: 180px;
-  padding: 4px;
-  border-radius: 8px;
+  padding: var(--rk-menu-padding, 4px);
+  border-radius: var(--rk-menu-radius, var(--radius-surface));
+  --rk-radius-outer: var(--rk-menu-radius, var(--radius-surface));
+  --rk-radius-inset: calc(var(--rk-menu-padding, 4px) + var(--rk-menu-border, 1px));
   opacity: 1;
   transform-origin: var(--transform-origin);
   transition:
@@ -31,15 +38,16 @@
 
 .rk-menu[data-ending-style] {
   pointer-events: none;
+  /* 缩回与淡出同时长一起收尾：缩放若还走 snappy 弹簧，面板看不见后 Base UI 还要再等约 0.3s 才卸载、归还焦点。 */
   transition:
     opacity var(--motion-duration-exit) var(--motion-ease-standard),
-    scale var(--motion-spring-snappy-duration) var(--motion-spring-snappy);
+    scale var(--motion-duration-exit) var(--motion-ease-standard);
 }
 
 .rk-menu__item {
   position: relative;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: max(var(--rk-radius-outer, var(--radius-container)) - var(--rk-radius-inset, 0px), var(--radius-2));
   color: var(--color-neutral-9);
   font-size: 13px;
   line-height: 1.4;
@@ -49,12 +57,69 @@
     var(--motion-ease-standard);
 }
 
+/* 同一菜单里只要有一项带图标，所有三列项的图标列都预留 18px：只带 trailing 的项也有空图标位，
+   文字不会往回缩。用 :has() 让预留由菜单整体决定，不用为每个 Item 传 hasIcon。 */
+.rk-menu__item--row {
+  display: grid;
+  grid-template-columns: 0 minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0;
+}
+
+.rk-menu:has(.rk-menu__icon:not(:empty)) .rk-menu__item--row {
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  column-gap: 8px;
+}
+
+.rk-menu__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  height: 18px;
+  overflow: hidden;
+  color: var(--color-neutral-7);
+}
+
+.rk-menu:has(.rk-menu__icon:not(:empty)) .rk-menu__icon {
+  width: 18px;
+  overflow: visible;
+}
+
+.rk-menu__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 右侧附件（值 / 对勾 / 自绘 chevron）；空的项不生成尾部列，避免多一段 8px 空隙。 */
+.rk-menu__trailing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  color: var(--color-neutral-7);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.rk-menu__trailing:empty {
+  display: none;
+}
+
 .rk-menu__item[data-highlighted] {
   background: color-mix(
     in srgb,
     var(--color-neutral-10) var(--state-hover-opacity),
     transparent
   );
+}
+
+/* 键盘焦点只用高亮底色（data-highlighted，加上 state-layer 的焦点层）表示：state-layer 的 [data-ripple]:focus-visible
+   外扩焦点环套在菜单项上会压到相邻项，圆角也不与弹层同心。 */
+.rk-menu .rk-menu__item:focus-visible {
+  outline: none;
 }
 
 .rk-menu__item--danger {
@@ -86,9 +151,11 @@
   color: var(--color-neutral-7);
 }
 
-/* 子菜单入口：与 Item 同一行高，label 撑满，行尾 › 用次级色；
-   子菜单打开期间（data-popup-open）高亮层保持，指针移进子菜单也看得出从哪一项展开。 */
-.rk-menu__submenu-trigger {
+/* 子菜单入口：新写法复用 Item 的三列 grid；没传 icon / trailing 的老写法恢复 #34 之前的
+   label + › flex 行，文字与图标仍按 children 原顺序排，不被撑成网格。
+   子菜单打开期间（data-popup-open）高亮层保持，指针移进子菜单也看得出从哪一项展开。
+   传了 trailing 时由 MenuRow 直接放附件，不再渲染默认 chevron。 */
+.rk-menu__submenu-trigger:not(.rk-menu__item--row) {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -117,6 +184,14 @@
   );
 }
 
+/* 窄屏时子菜单可能整个盖住父菜单：玻璃面板半透明会透出下层菜单的文字。
+   只有新三列菜单自动换纸色实心底；老写法子菜单保持原来的玻璃底（data-solid="false" 可强制关），
+   显式 data-solid="true" 则任何子菜单都可启用。边框、阴影仍来自 data-glass="panel"。 */
+.rk-menu.rk-menu--submenu:has(.rk-menu__item--row):not([data-solid='false']),
+.rk-menu.rk-menu--submenu[data-solid='true'] {
+  background: var(--color-paper);
+}
+
 /* 子菜单从侧面展开：不做纵向位移，缩放从 --transform-origin（父菜单那一侧）长出。 */
 .rk-menu--submenu[data-starting-style],
 .rk-menu--submenu[data-ending-style] {
@@ -134,5 +209,13 @@
 
   .rk-menu__item {
     transition-duration: 1ms;
+  }
+}
+
+/* 强制颜色模式下高亮底色会被系统颜色抹掉：用描在项内侧的轮廓标焦点（不外扩，不压相邻项） */
+@media (forced-colors: active) {
+  .rk-menu .rk-menu__item[data-highlighted] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
   }
 }

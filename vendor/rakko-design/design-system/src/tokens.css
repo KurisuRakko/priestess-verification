@@ -131,11 +131,42 @@
 }
 
 @theme {
-  /* 组件圆角：控件（按钮、输入、chip）4px，卡片与工具条 6px。
-     取自 templates/scaffold.html 现用值，只是给它们起名，不改视觉；scaffold 的 :root 镜像同值。
-     Tailwind 由此生成 rounded-control / rounded-card。 */
-  --radius-control: 4px;
-  --radius-card: 6px;
+  /* 圆角规则「方圆角 + 同心」（硬性约定，见 CHEATSHEET.md → Spacing & radius；决策见 docs/2026-11-04-square-radius.md）：
+     1. 浮层（Dialog / Popover / Menu / Select 弹层 / Snackbar 等浮动条）= --radius-surface（12px）；Sheet 单独一档 --radius-sheet（16px）；
+     2. 内容容器（List.Group、卡片、输入框、图片 / 媒体、附件卡片）= --radius-container（8px）；
+     3. 可点击控件（Button、方形 IconButton、FilterChip、SegmentedChoice 外框、Select 触发器）= --radius-control（6px）；
+     4. 定高的条形与圆形件（Switch、Slider / Progress 轨道、拖柄、滚动条、plain 圆形 IconButton）= --radius-pill，不随控件档变化；
+     5. 容器内部的元素不再挑档，一律同心：max(外圆角 − 内边距（− 描边）, --radius-2)。
+        容器写 --rk-radius-outer（自己的圆角）与 --rk-radius-inset（内边距 + 描边），子元素写
+        border-radius: max(var(--rk-radius-outer, var(--radius-container)) - var(--rk-radius-inset, 0px), var(--radius-2))。
+     同类元素同一档，嵌套一律同心。Tailwind 由此生成 rounded-surface / rounded-container / rounded-control / rounded-card。 */
+  --radius-surface: var(--radius-12);
+  --radius-container: var(--radius-8);
+  --radius-control: var(--radius-6);
+  --radius-card: var(--radius-container);
+
+  /* 圆角等级：按像素命名（同 --text-*-NN），共 8 档；不用 xs/sm/lg/xl，免得改掉 Tailwind 默认的 rounded-lg/xl
+     （默认是 rem，消费方 html 14px 时 rounded-lg 实为 7px，覆盖成 px 会让已有界面变样）。
+     新代码写上面的语义 token 或同心公式，不直接挑档；档位留给语义 token 引用和少数例外（复选框、徽标、提示气泡、骨架文本行）。 */
+  --radius-2: 2px;
+  --radius-4: 4px;
+  --radius-6: 6px;
+  --radius-8: 8px;
+  --radius-10: 10px;
+  --radius-12: 12px;
+  --radius-16: 16px;
+  --radius-pill: 9999px;
+
+  /* 旧语义别名：保留向后兼容，值并入上面的规则。
+     thumb 是例外：列表缩略图、附件预览只有 32–48px，保持 6px，比所在容器略小。
+     row 是同心推导的默认值（List.Group 外圆角 8 − 行内缩 0 = 8），只给脱离容器的浮起行（SortableList、LiftMenu 行）用；
+     新代码不要直接写 row，在容器里用同心公式。
+     sheet 不并入浮层档：Sheet 只圆顶边、面积大，保持 16px。 */
+  --radius-thumb: var(--radius-6);
+  --radius-media: var(--radius-container);
+  --radius-row: var(--radius-container);
+  --radius-popover: var(--radius-surface);
+  --radius-sheet: var(--radius-16);
 }
 
 @custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
@@ -151,6 +182,8 @@
   --motion-duration-exit: 180ms;
   --motion-delay-tooltip: 500ms;
   --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  /* 减速曲线：进场淡入用，一起步就看得见、尾巴收得柔（标准曲线起步慢，前几十毫秒近乎空白）。由 motion.test.ts 锁定。 */
+  --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
   /* 弹簧曲线（react/src/spring.ts 的 SPRINGS 展开成 linear()，由 spring.test.ts 锁定）：
      时长与曲线成对使用：transition: transform var(--motion-spring-smooth-duration) var(--motion-spring-smooth)。 */
   --motion-spring-snappy: linear(0, 0.118, 0.277, 0.462, 0.615, 0.731, 0.802, 0.865, 0.908, 0.934, 0.955, 0.97, 0.978, 0.986, 0.99, 0.994, 0.995, 0.997, 0.998, 0.999, 1);
@@ -159,13 +192,16 @@
   --motion-spring-smooth-duration: 675ms;
   --motion-spring-gentle: linear(0, 0.018, 0.059, 0.114, 0.178, 0.246, 0.314, 0.38, 0.444, 0.513, 0.568, 0.618, 0.663, 0.703, 0.74, 0.772, 0.801, 0.827, 0.849, 0.869, 0.886, 0.901, 0.915, 0.926, 0.936, 0.945, 0.954, 0.96, 0.966, 0.97, 0.974, 0.978, 0.981, 0.984, 0.986, 0.988, 0.99, 0.991, 0.992, 0.994, 0.994, 0.995, 0.996, 0.997, 0.997, 0.997, 0.998, 0.998, 0.998, 0.999, 0.999, 1);
   --motion-spring-gentle-duration: 1287ms;
-  --motion-spring-page: linear(0, 0.09, 0.249, 0.412, 0.555, 0.67, 0.758, 0.825, 0.874, 0.91, 0.936, 0.955, 0.968, 0.977, 0.984, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 1);
-  --motion-spring-page-duration: 550ms;
+  --motion-spring-page: linear(0, 0.058, 0.181, 0.321, 0.456, 0.574, 0.672, 0.751, 0.813, 0.861, 0.897, 0.924, 0.945, 0.96, 0.971, 0.979, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 1);
+  --motion-spring-page-duration: 515ms;
   /* 过冲曲线：开关拇指这类小件「啪」地到位（冲过头再回来）；配 smooth / snappy 弹簧时长用，由 motion.test.ts 锁定。 */
   --motion-ease-pop: cubic-bezier(0.34, 2.1, 0.5, 1);
   --state-hover-opacity: 4%;
   --state-focus-opacity: 8%;
   --state-pressed-opacity: 12%;
+  /* 滚动条滑块（src/scrollbar.css）：neutral-10 叠这么多，轨道透明；悬停加深。neutral-10 随明暗翻转，深浅主题同一组值。 */
+  --scrollbar-thumb-opacity: 24%;
+  --scrollbar-thumb-hover-opacity: 40%;
 
   /* 毛玻璃表面（顶栏等常驻半透明 chrome）。
      起点取自 shiroi 顶栏（20px 模糊 + 180% 饱和 + 72% 纸底），现值是用户在评审页上调出的定稿：
@@ -181,7 +217,7 @@
   /* 玻璃材质的其余组成（组合方式见 src/glass.css，用法见 references/glass.md）。
      panel 用 58% 而不是 chrome 的 45%：浮层会落在任意内容之上，正文要在它上面可读。
      浅色纸底盖在浅色页面上，alpha 高于 ~75% 时材质几乎不可见；可读性靠饱和与纸色，不靠 alpha。
-     高光 0.59 只服务浅色：它是盖在浅色纸底上的纸面反光，深色主题由主题层改成
+     高光 0.3 只服务浅色（2026-10-25 应用户要求由 0.59 调低）：它是盖在浅色纸底上的纸面反光，深色主题由主题层改成
      transparent——同一层白光落在 58% 的近黑面板上只会糊住面板顶部第一行文字（见
      docs/2026-09-21-dark-glass-highlight.md）。
      遮罩只压暗不模糊（全屏 backdrop 每帧读回整个视口，是系统里最贵的东西），
@@ -190,7 +226,7 @@
      [data-theme='dark'] 块里。 */
   --glass-panel-opacity: 58%;
   --glass-scrim-opacity: 34%;
-  --glass-highlight: rgba(255, 255, 255, 0.59);
+  --glass-highlight: rgba(255, 255, 255, 0.3);
   --shadow-whisper: 0 4px 24px rgba(0, 0, 0, 0.05);
 
   /* haze 档：压在图像上的文字块身后的一团雾。中心纸色 alpha 与雾向外溢出文字块的基准距离

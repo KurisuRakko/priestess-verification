@@ -21,8 +21,8 @@
   transition-duration: calc(var(--motion-duration-exit) * var(--drawer-swipe-strength, 1));
 }
 
-/* 下滑跟手时 backdrop 不做过渡（进度变量实时驱动）。 */
-.rk-sheet__backdrop[data-swiping] {
+/* 下滑跟手时 backdrop 不做过渡（进度变量实时驱动）；甩走那一刻已挂上 data-ending-style 时让给退场过渡（见下面 .rk-sheet 的说明）。 */
+.rk-sheet__backdrop[data-swiping]:not([data-ending-style]) {
   transition: none;
 }
 
@@ -52,8 +52,11 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   border-width: 1px 0 0;
-  border-top-left-radius: 16px;
-  border-top-right-radius: 16px;
+  /* Sheet 档 --radius-sheet 16px（上两角）；内容按同心推导：内缩取左右内边距 24px + 上边 1px */
+  border-top-left-radius: var(--radius-sheet);
+  border-top-right-radius: var(--radius-sheet);
+  --rk-radius-outer: var(--radius-sheet);
+  --rk-radius-inset: calc(24px + 1px);
   box-shadow: inset 0 1px 0 var(--glass-highlight), 0 -4px 24px rgba(0, 0, 0, 0.05);
   translate: 0 var(--drawer-swipe-movement-y, 0px);
   transition: translate var(--motion-spring-smooth-duration) var(--motion-spring-smooth);
@@ -78,9 +81,16 @@
     var(--motion-spring-snappy);
 }
 
-/* 跟手滑动时不做过渡。 */
-.rk-sheet[data-swiping] {
+/* 跟手滑动时不做过渡。甩走时 Base UI 先同步挂上 data-ending-style、data-swiping 要到下一次渲染才摘：
+   两个属性同时在的那一刻若还是 transition: none，translate 直接落到 100%（之后再摘 data-swiping 也没有变化可过渡），
+   面板从拖到的位置一下消失、约 4ms 就卸载。所以挂上 data-ending-style 后就不再关过渡，从手指所在处接着滑出。 */
+.rk-sheet[data-swiping]:not([data-ending-style]) {
   transition: none;
+  /* Base UI 跟手时还会往 style 里写 transform: translate3d(拖动位移)（它假定消费方用 transform 吃 --drawer-swipe-movement-*），
+     而这里用 translate 吃同一个变量：两层叠加，面板走手指的两倍；松手时内联 transform 一下清掉（transform 没有过渡），
+     面板先硬跳回一半，剩下一半才弹簧回弹——使劲上拉（过拉阻尼）松手时最明显。跟手期间把内联 transform 压掉，
+     位移只由 translate 一层给，松手后整段从手指所在处弹簧回原位。 */
+  transform: none !important;
 }
 
 .rk-sheet__content {
@@ -91,7 +101,7 @@
   width: 36px;
   height: 4px;
   margin: 0 auto 16px;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   background: var(--color-neutral-4);
 }
 
@@ -123,7 +133,7 @@
   height: 100%;
   padding: calc(20px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
   border-width: 0 0 0 1px;
-  border-radius: 16px 0 0 16px;
+  border-radius: var(--radius-sheet) 0 0 var(--radius-sheet);
   box-shadow: inset 1px 0 0 var(--glass-highlight), -4px 0 24px rgba(0, 0, 0, 0.05);
   translate: var(--drawer-swipe-movement-x, 0px) 0;
 }

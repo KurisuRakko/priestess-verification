@@ -1,12 +1,14 @@
 /* rk-lift-menu：长按 / 右键的浮起菜单，叠在 rk-menu 上（材质、分隔线、高亮仍归 menu.css）。
    弹出：从锚点（浮起的源、按点；位置由 Base UI 的 --transform-origin 给出）长出来、缩回去——
    缩放两个方向都走 snappy 弹簧（过渡可打断：中途反向从当前值接着走），透明度走 enter / exit 时长。
-   起点 .6（列表行）；media（长按图片，Rakko 定的样板）保持 .85。选择器都带 .rk-menu 前缀压过 menu.css，不靠拼接顺序。
+   起点 .6（列表行）；media（长按图片，Rakko 定的样板）保持 .85；card（文件卡片）沿用 rk-menu 默认的 .75
+   （RakkoNotes 的文件卡片菜单是普通 Menu）。选择器都带 .rk-menu 前缀压过 menu.css，不靠拼接顺序。
    参数照搬 RakkoNotes lists.css 的 .rn-context-menu。 */
 
 .rk-menu.rk-lift-menu {
   min-width: 200px;
-  border-radius: 12px;
+  /* 弹层圆角（浮层档 12px；菜单项圆角由 menu.css 按同心规则推导）；项目覆盖 --rk-lift-menu-radius */
+  --rk-menu-radius: var(--rk-lift-menu-radius, var(--radius-surface));
   /* 长按打开时焦点落在弹层本身：不画浏览器默认焦点框，键盘导航的高亮在菜单项上 */
   outline: none;
   transform-origin: var(--transform-origin);
@@ -27,6 +29,11 @@
   scale: 0.85;
 }
 
+.rk-menu.rk-lift-menu[data-lift-variant='card'][data-starting-style],
+.rk-menu.rk-lift-menu[data-lift-variant='card'][data-ending-style] {
+  scale: 0.75;
+}
+
 .rk-menu.rk-lift-menu[data-ending-style] {
   transition:
     opacity var(--motion-duration-exit) var(--motion-ease-standard),
@@ -40,7 +47,6 @@
   justify-content: space-between;
   gap: 16px;
   padding: 10px 12px;
-  border-radius: 8px;
   font-size: 15px;
   line-height: 1.33;
 }
@@ -48,6 +54,12 @@
 .rk-lift-menu__label {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/* 危险项：只有文字是错误色，高亮仍是中性灰（iOS 上下文菜单、RakkoNotes 的 rn-context-menu 都这样）；
+   下拉 Menu / ContextMenu 的危险项照旧红底高亮（menu.css），这里叠类压过它 */
+.rk-menu__item.rk-lift-menu__item.rk-menu__item--danger[data-highlighted] {
+  background: color-mix(in srgb, var(--color-neutral-10) var(--state-hover-opacity), transparent);
 }
 
 /* 勾选项：勾画在文字前 */
@@ -62,6 +74,28 @@
   flex: none;
 }
 
+/* 有二级菜单时根上补的隐形 Trigger（只为让 Base UI 给根菜单登记浮层节点，见 lift-menu.tsx）：看不见、不占位、不接事件 */
+.rk-lift-menu__trigger {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 二级菜单：入口与菜单项同一排布（.rk-lift-menu__item），行尾 › 由 Menu.SubmenuTrigger 画；
+   面板外观同一级，但不吃一级的 .6 弹出——从入口那一侧按 rk-menu--submenu 的默认长出 */
+.rk-menu.rk-lift-menu__submenu {
+  min-width: 200px;
+  --rk-menu-radius: var(--rk-lift-menu-radius, var(--radius-surface));
+  /* 键盘展开时焦点落在弹层本身：同一级，不画浏览器默认焦点框 */
+  outline: none;
+}
+
 /* ------------------------------------------------------------------ 浮起层（lift-layer.tsx） */
 
 /* 全屏层：压暗的底 + 源的克隆，挂在 body 上。拦滚动 / 捏合交给 blockTouchScroll（JS）；
@@ -69,7 +103,8 @@
 .rk-lift-menu__layer {
   --rk-lift-scrim: rgb(0 0 0 / 28%);
   --rk-lift-shadow: 0 12px 40px rgb(0 0 0 / 30%);
-  --rk-lift-radius: 10px;
+  /* 浮起的行脱离了 List.Group，用同心推导的默认值 --radius-row（= 组圆角 8 − 行内缩 0） */
+  --rk-lift-radius: var(--radius-row);
   position: fixed;
   inset: 0;
   z-index: var(--layer-overlay);
@@ -84,9 +119,11 @@
   --rk-lift-scrim: rgb(0 0 0 / 55%);
 }
 
-/* 图片这类整块媒体：圆角 12px（与图片自身一致） */
-.rk-lift-menu__layer[data-variant='media'] {
-  --rk-lift-radius: 12px;
+/* 图片、文件卡片这类整块：源自己有圆角时 lift-layer.tsx 读源的 border-radius、按缩放换算后写进预览框的
+   --rk-lift-radius（看上去与源一致）；源没有圆角时才用这里的内容容器档 8px */
+.rk-lift-menu__layer[data-variant='media'],
+.rk-lift-menu__layer[data-variant='card'] {
+  --rk-lift-radius: var(--radius-container);
 }
 
 /* 飞回途中不挡点击 */
@@ -149,7 +186,9 @@
   .rk-menu.rk-lift-menu[data-starting-style],
   .rk-menu.rk-lift-menu[data-ending-style],
   .rk-menu.rk-lift-menu[data-lift-variant='media'][data-starting-style],
-  .rk-menu.rk-lift-menu[data-lift-variant='media'][data-ending-style] {
+  .rk-menu.rk-lift-menu[data-lift-variant='media'][data-ending-style],
+  .rk-menu.rk-lift-menu[data-lift-variant='card'][data-starting-style],
+  .rk-menu.rk-lift-menu[data-lift-variant='card'][data-ending-style] {
     scale: none;
     translate: none;
     transition: opacity var(--motion-duration-enter) var(--motion-ease-standard);

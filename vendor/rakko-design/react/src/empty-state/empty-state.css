@@ -1,12 +1,56 @@
 /* rk-empty-state：列表的空状态 / 出错提示。与列表互换的淡出淡入在 useSwapPresence（WAAPI），这里只有挂上时的淡入。
-   --rk-empty-state-offset 是离容器顶的距离（RakkoNotes 用 28vh，让提示落在列表区的视觉中线偏上） */
+   --rk-empty-state-offset 是离容器顶的距离（RakkoNotes 用 28vh，让提示落在列表区的视觉中线偏上）；
+   layout="none" 只留进出动画，版式（边距、字号、颜色、居中）全交给调用方（回收站顶部 13px 的说明这类） */
 .rk-empty-state {
+  animation: rk-empty-state-in var(--motion-duration-enter) var(--motion-ease-standard) both;
+}
+
+/* 默认版式（layout="default"）单独一个类：layout="none" 时不挂，调用方自己的类不用和它比特异性 */
+.rk-empty-state--layout {
   margin: var(--rk-empty-state-offset, 28vh) auto 0;
   padding: 0 16px;
   font-size: 16px;
   text-align: center;
   color: var(--color-neutral-7);
-  animation: rk-empty-state-in var(--motion-duration-enter) var(--motion-ease-standard) both;
+}
+
+/* 图标 / 主文案 / 说明三个槽（EmptyState 传了 icon / title / description 才挂）：竖排居中，字号走文字 token。
+   移植自 RakkoNotes lists/ListEmptyState；主文案按 CJK 标题约定用 500（font-medium），不用合成粗体。 */
+.rk-empty-state--slotted {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* 默认版式下限宽，让说明在窄列表里也成段落而不是一长行；margin auto 仍然居中 */
+.rk-empty-state--layout.rk-empty-state--slotted {
+  max-width: 320px;
+}
+
+.rk-empty-state__icon {
+  display: inline-flex;
+  margin-bottom: 12px;
+  color: var(--color-neutral-6);
+}
+
+.rk-empty-state__icon > svg {
+  width: var(--rk-empty-state-icon-size, 40px);
+  height: var(--rk-empty-state-icon-size, 40px);
+}
+
+.rk-empty-state__title {
+  font-size: var(--text-title-20);
+  line-height: var(--text-title-20--line-height);
+  font-weight: 500;
+  color: var(--color-neutral-9);
+}
+
+.rk-empty-state__description {
+  margin-top: 4px;
+  font-size: var(--text-copy-14);
+  line-height: var(--text-copy-14--line-height);
+  color: var(--color-neutral-7);
+  text-wrap: balance;
 }
 
 @keyframes rk-empty-state-in {

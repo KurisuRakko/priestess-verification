@@ -13,7 +13,9 @@
   /* 左右两区换内容时旧内容的克隆绝对定位在这里（useSlotCrossfade） */
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, max-content) minmax(0, 1fr);
+  /* 两侧弹性栏等宽，小标题居中；标题过长时两侧也不压到 0：左栏至少留返回箭头的 44px 命中区（返回文字可以让位），
+     右栏至少放下全部按钮（min-content），标题夹在中间省略。 */
+  grid-template-columns: minmax(44px, 1fr) minmax(0, max-content) minmax(min-content, 1fr);
   align-items: center;
   column-gap: 8px;
   height: 44px;
@@ -53,6 +55,16 @@
 .rk-top-bar__title.rk-navigation-bar__title[data-visible] {
   opacity: 1;
   translate: none;
+}
+
+/* 栏内小标题固定单行省略：title 里的 SwapText 即使传了 wrap，新旧两份也都要截断（wrap 是给大标题折行用的）。
+   选择器叠到 (0,3,0)：压过 swap-text.css 的 .rk-swap-text--wrap .rk-swap-text__in（0,2,0）；
+   swap-text.css 排在 navigation-bar.css 之后，同特异性会被它盖掉，所以这里不依赖拼接顺序。 */
+.rk-top-bar__title.rk-navigation-bar__title .rk-swap-text__in,
+.rk-top-bar__title.rk-navigation-bar__title .rk-swap-text__out {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rk-top-bar__actions.rk-navigation-bar__actions,

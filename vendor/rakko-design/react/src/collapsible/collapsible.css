@@ -1,0 +1,66 @@
+/* rk-collapsible：原生 button 触发 + 实测高度折叠。高度过渡由 tsx 的 inline height 驱动。 */
+
+.rk-collapsible {
+  display: grid;
+  min-width: 0;
+  /* 同心变量由组件自己设定，不继承祖先（放进 Dialog 时不会被算成 2px）：触发器是内容行，取内容容器档 8px */
+  --rk-radius-outer: var(--radius-container);
+  --rk-radius-inset: 0px;
+}
+
+.rk-collapsible__trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border: 0;
+  /* 触发器是一行：圆角按同心公式推导，外圆角与内缩取 .rk-collapsible 自己设定的值（12 − 0） */
+  border-radius: max(var(--rk-radius-outer, var(--radius-container)) - var(--rk-radius-inset, 0px), var(--radius-2));
+  background: transparent;
+  color: var(--color-neutral-9);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion-duration-state)
+    var(--motion-ease-standard);
+}
+
+.rk-collapsible__trigger:not(:disabled):hover {
+  background: color-mix(in srgb, var(--color-neutral-10) 3%, transparent);
+}
+
+.rk-collapsible__trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.rk-collapsible__trigger:disabled,
+.rk-collapsible[data-disabled] .rk-collapsible__trigger {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.rk-collapsible__content {
+  overflow: hidden;
+}
+
+/* 首帧不加过渡：避免 defaultOpen 从 0 长出来；之后的展开 / 收起与内容高度变化都走 smooth 弹簧。 */
+.rk-collapsible__content[data-ready] {
+  transition: height var(--motion-spring-smooth-duration)
+    var(--motion-spring-smooth);
+}
+
+.rk-collapsible__content-inner {
+  display: flow-root;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rk-collapsible__content[data-ready] {
+    transition-duration: 1ms;
+  }
+}

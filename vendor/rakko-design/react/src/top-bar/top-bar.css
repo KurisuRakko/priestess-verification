@@ -29,12 +29,12 @@
   margin-left: auto;
 }
 
-/* 顶栏内控件去掉胶囊自带边框，与 showcase 现有 .toolbar 内规则一致。 */
+/* 顶栏内控件去掉自带边框，与 showcase 现有 .toolbar 内规则一致。 */
 .rk-top-bar .rk-icon-button {
   border-color: transparent;
 }
 
-/* 顶栏内控件无边框：悬停与按下只保留填充与颜色变化，不出现胶囊边框。 */
+/* 顶栏内控件无边框：悬停与按下只保留填充与颜色变化，不出现控件边框。 */
 .rk-top-bar .rk-icon-button:not(:disabled):hover,
 .rk-top-bar .rk-icon-button[aria-pressed='true'] {
   border-color: transparent;

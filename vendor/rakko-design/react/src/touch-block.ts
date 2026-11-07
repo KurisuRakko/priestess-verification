@@ -1,6 +1,7 @@
 /**
  * 用非被动 touchmove + preventDefault 拦住页面滚动 / 缩放，代替大面积层上的 CSS `touch-action: none`。
- * 移植自 RakkoNotes 的 touchBlock.ts（b1ac47c），给 LiftMenu 的全屏浮起层用。
+ * 移植自 RakkoNotes 的 touchBlock.ts（b1ac47c）：LiftMenu 的全屏浮起层在用，也从包入口导出，给消费方的全屏浮层
+ * （看图、裁剪、文件预览这类）和小块拖柄挡住底层滚动。
  *
  * 为什么：WebKit（iOS Safari）的 touch-action 区域是异步更新的。全屏层带着 touch-action: none 卸载之后，
  * 旧的 none 区域会残留，之后在那里起手的触摸整页都滚不动（RakkoNotes 实机诊断：长按图片的浮起层关掉后，

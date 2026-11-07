@@ -1,0 +1,61 @@
+/* rk-badge 抽象自 RakkoNotes 的「只读分享」（share.css .rn-share-badge）与设置页环境标记
+   （settings.css .rn-settings-instance__badge）：pill 圆角 + 语义色 12% 淡底 + 语义色字。
+   字色向 --color-neutral-10（浅色为墨、深色反转为近白）混合 35%，两主题下对比度都 ≥ 4.5:1。
+   字重 500（font-medium），不用合成粗体。 */
+
+.rk-badge {
+  --rk-badge-tone: var(--color-neutral-7);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 2px 10px;
+  border-radius: var(--radius-4);
+  background: color-mix(in srgb, var(--rk-badge-tone) 12%, transparent);
+  color: color-mix(in srgb, var(--rk-badge-tone) 65%, var(--color-neutral-10));
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  vertical-align: middle;
+  user-select: none;
+}
+
+.rk-badge[data-size='sm'] {
+  gap: 3px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.rk-badge[data-tone='accent'] {
+  --rk-badge-tone: var(--color-accent);
+}
+
+.rk-badge[data-tone='info'] {
+  --rk-badge-tone: var(--color-info);
+}
+
+.rk-badge[data-tone='success'] {
+  --rk-badge-tone: var(--color-success);
+}
+
+.rk-badge[data-tone='warning'] {
+  --rk-badge-tone: var(--color-warning);
+}
+
+.rk-badge[data-tone='danger'] {
+  --rk-badge-tone: var(--color-error);
+}
+
+.rk-badge__icon {
+  display: inline-flex;
+  flex: none;
+  width: 1em;
+  height: 1em;
+}
+
+.rk-badge__icon > svg {
+  width: 100%;
+  height: 100%;
+}

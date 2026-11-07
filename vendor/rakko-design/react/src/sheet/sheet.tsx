@@ -1,6 +1,8 @@
 import { Drawer } from '@base-ui/react/drawer'
 import type { ComponentProps } from 'react'
 import { cx } from '../cx'
+import { rootTimeMs } from '../motion-dom'
+import { SPRINGS, springEasing } from '../spring'
 import { useViewportTracking } from '../viewport/viewport'
 
 export interface SheetRootProps extends ComponentProps<typeof Drawer.Root> {}
@@ -29,6 +31,39 @@ function ViewportTracking() {
 }
 
 /**
+ * 下滑（右滑）甩走时让收起时长跟上手速。Base UI 松手时按速度算出 --drawer-swipe-strength（0.1–1，甩得越快越小），
+ * sheet.css 用它缩短退场时长；但它先挂 data-ending-style（过渡此时已按 strength = 1 起跑），下一次渲染才把变量写进 style，
+ * CSS 里的时长赶不上。这里在过渡起跑（transitionrun）和变量写入（style 变化）时，把正在跑的那条 translate 过渡的时长
+ * 改成「snappy 时长 × strength」（幂等，两头谁先到都对）。照搬 RakkoNotes MoveSheet 的补丁，收进 Sheet 后消费方不用再打。
+ * 回调 ref：React 19 会在卸载时调返回的清理函数。
+ */
+function trackSwipeReleaseDuration(popup: HTMLElement | null): (() => void) | undefined {
+  if (!popup) return undefined
+  const apply = () => {
+    if (!popup.hasAttribute('data-ending-style') || typeof popup.getAnimations !== 'function') return
+    const strength = Number.parseFloat(getComputedStyle(popup).getPropertyValue('--drawer-swipe-strength'))
+    if (!(strength > 0 && strength < 1)) return
+    const base = rootTimeMs('--motion-spring-snappy-duration', springEasing(SPRINGS.snappy).durationMs)
+    for (const anim of popup.getAnimations()) {
+      // CSSTransition（jsdom 没有这个类，按属性认）
+      if ((anim as Animation & { transitionProperty?: string }).transitionProperty === 'translate') {
+        anim.effect?.updateTiming({ duration: base * strength })
+      }
+    }
+  }
+  const onRun = (event: TransitionEvent) => {
+    if (event.target === popup && event.propertyName === 'translate') apply()
+  }
+  popup.addEventListener('transitionrun', onRun)
+  const observer = new MutationObserver(apply)
+  observer.observe(popup, { attributes: true, attributeFilter: ['style', 'data-ending-style'] })
+  return () => {
+    popup.removeEventListener('transitionrun', onRun)
+    observer.disconnect()
+  }
+}
+
+/**
  * 组合 Portal > Backdrop + Viewport > Popup > Content。
  * backdrop 视觉与滑动进度、viewport 定位都在 rk-sheet.css 完成；
  * viewport 底边贴 iOS 键盘上沿（消费 --rk-visual-top / --rk-keyboard-inset）。
@@ -39,6 +74,7 @@ function SheetPopup({ className, container, children }: SheetPopupProps) {
       <Drawer.Backdrop className="rk-sheet__backdrop" />
       <Drawer.Viewport className="rk-sheet__viewport">
         <Drawer.Popup
+          ref={trackSwipeReleaseDuration}
           className={cx('rk-sheet', className)}
           data-glass="panel"
         >

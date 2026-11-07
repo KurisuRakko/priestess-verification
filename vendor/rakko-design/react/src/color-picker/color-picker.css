@@ -1,0 +1,238 @@
+/* rk-color-picker：画笔取色器（预设色板 / 自定义 SV 方块 + 色相条 + 十六进制）。行为在 color-picker.tsx。
+   界面色全走 token；色板与色相渐变是「被选的颜色」本身，不随主题变。 */
+
+.rk-color-picker {
+  --rk-color-picker-thumb: 26px;
+  box-sizing: border-box;
+  /* 跟随容器：Popover 给多宽就多宽，色板列数按 --rk-color-picker-columns 均分。
+     260px 是窄弹层里的可用下限，媒体查询再让位给更窄的视口。 */
+  width: 100%;
+  min-width: 260px;
+  max-width: 100%;
+  color: var(--color-neutral-9);
+}
+
+.rk-color-picker__tabs {
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+/* 两个面板叠在同一格：切换时交叉淡化。高度由 tsx 量当前分页写 inline height，
+   切页 / 内容变高变矮都走 smooth 弹簧；overflow: clip 收住另一个分页伸出来的部分，
+   clip-margin 给焦点环留一点绘制余量。 */
+.rk-color-picker__panels {
+  display: grid;
+  overflow: clip;
+  overflow-clip-margin: 8px;
+  transition: height var(--motion-spring-smooth-duration) var(--motion-spring-smooth);
+}
+
+.rk-color-picker__panel-body {
+  min-width: 0;
+}
+
+.rk-color-picker__panel {
+  grid-area: 1 / 1;
+  min-height: 0;
+  margin: 0;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity var(--motion-duration-enter) var(--motion-ease-decelerate),
+    visibility 0s;
+}
+
+/* 不活动的面板：color-picker.tsx 标 data-hidden 与 inert（不用 hidden 属性：Tailwind preflight 的 [hidden]
+   在 @layer 里带 !important，组件压不过）。仍占位撑住高度，淡出后才不可见 */
+.rk-color-picker__panel[data-hidden] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--motion-duration-exit) var(--motion-ease-standard),
+    visibility 0s linear var(--motion-duration-exit);
+}
+
+/* ------------------------------------------------------------------ 预设 */
+
+.rk-color-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(var(--rk-color-picker-columns, 6), minmax(0, 1fr));
+  gap: 10px;
+  padding: 4px;
+}
+
+.rk-color-picker__swatch {
+  position: relative;
+  aspect-ratio: 1;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--rk-color-picker-swatch);
+  /* 浅色（白、淡黄）在纸色上看不清边：所有色块都带一圈极淡的描边 */
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  cursor: pointer;
+  transition: scale var(--motion-spring-snappy-duration) var(--motion-spring-snappy);
+}
+
+.rk-color-picker__swatch:active {
+  scale: 0.9;
+}
+
+/* 选中环：色块外一圈，弹簧放大淡入 */
+.rk-color-picker__swatch::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 2px solid var(--color-neutral-8);
+  border-radius: 50%;
+  opacity: 0;
+  scale: 0.8;
+  transition:
+    opacity var(--motion-duration-state) var(--motion-ease-standard),
+    scale var(--motion-spring-snappy-duration) var(--motion-spring-snappy);
+}
+
+.rk-color-picker__swatch[aria-checked='true']::after {
+  opacity: 1;
+  scale: 1;
+}
+
+.rk-color-picker__swatch:focus-visible {
+  outline-offset: 5px;
+}
+
+/* ------------------------------------------------------------------ 自定义 */
+
+.rk-color-picker__custom {
+  display: grid;
+  gap: 16px;
+  padding: 4px;
+}
+
+.rk-color-picker__square,
+.rk-color-picker__hue {
+  position: relative;
+  cursor: crosshair;
+  /* 拦页面滚动交给 blockTouchScroll（JS）；这里只去掉双击缩放的等待与长按 callout */
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.rk-color-picker__square {
+  height: 168px;
+  border-radius: var(--radius-container);
+  background:
+    linear-gradient(to top, black, transparent),
+    linear-gradient(to right, white, transparent),
+    var(--rk-color-picker-hue);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.rk-color-picker__hue {
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    to right,
+    hsl(0 100% 50%),
+    hsl(60 100% 50%),
+    hsl(120 100% 50%),
+    hsl(180 100% 50%),
+    hsl(240 100% 50%),
+    hsl(300 100% 50%),
+    hsl(360 100% 50%)
+  );
+  cursor: ew-resize;
+}
+
+/* 色相条的滑块竖向居中；横向中心能到两端（0° 与 360°） */
+.rk-color-picker__hue .rk-color-picker__thumb {
+  top: 50%;
+}
+
+.rk-color-picker__square:focus-visible,
+.rk-color-picker__hue:focus-visible {
+  outline-offset: 3px;
+}
+
+.rk-color-picker__thumb {
+  position: absolute;
+  box-sizing: border-box;
+  width: var(--rk-color-picker-thumb);
+  height: var(--rk-color-picker-thumb);
+  border: 3px solid white;
+  border-radius: 50%;
+  background: var(--rk-color-picker-value);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 18%), 0 2px 6px rgb(0 0 0 / 22%);
+  translate: -50% -50%;
+  pointer-events: none;
+  /* 点按跳位时滑过去；拖动中（data-dragging）直接跟手 */
+  transition:
+    left var(--motion-duration-state) var(--motion-ease-standard),
+    top var(--motion-duration-state) var(--motion-ease-standard),
+    scale var(--motion-spring-snappy-duration) var(--motion-spring-snappy);
+}
+
+.rk-color-picker__thumb--hue {
+  background: var(--rk-color-picker-hue);
+}
+
+[data-dragging] > .rk-color-picker__thumb {
+  scale: 1.12;
+  transition: scale var(--motion-spring-snappy-duration) var(--motion-spring-snappy);
+}
+
+.rk-color-picker__footer {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.rk-color-picker__preview {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-container);
+  background: var(--rk-color-picker-value);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  transition: background-color var(--motion-duration-state) var(--motion-ease-standard);
+}
+
+.rk-color-picker[data-dragging] .rk-color-picker__preview {
+  transition: none;
+}
+
+.rk-color-picker__hex {
+  flex: 1;
+  min-width: 0;
+}
+
+.rk-color-picker__hex .rk-field__input {
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 320px) {
+  .rk-color-picker {
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rk-color-picker__panel,
+  .rk-color-picker__panel[data-hidden],
+  .rk-color-picker__panels {
+    transition-duration: 1ms;
+    transition-delay: 0s;
+  }
+
+  .rk-color-picker__thumb,
+  .rk-color-picker__swatch,
+  .rk-color-picker__swatch::after {
+    transition: opacity var(--motion-duration-state) var(--motion-ease-standard);
+  }
+}

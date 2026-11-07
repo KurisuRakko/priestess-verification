@@ -5,17 +5,44 @@ import { cx } from '../cx'
 export interface SelectPopupProps
   extends Omit<ComponentProps<typeof BaseSelect.Popup>, 'className'> {
   className?: string
+  /** 列表位于触发器的哪一侧，转给 Positioner。不传沿用 Base UI 默认（bottom）。 */
+  side?: ComponentProps<typeof BaseSelect.Positioner>['side']
+  /** 列表沿该侧的对齐方式，转给 Positioner。不传沿用 Base UI 默认（center）。 */
+  align?: ComponentProps<typeof BaseSelect.Positioner>['align']
+  /**
+   * 列表与触发器的间距，转给 Positioner。
+   * @default 6
+   */
+  sideOffset?: ComponentProps<typeof BaseSelect.Positioner>['sideOffset']
+  /** 沿对齐轴的偏移，转给 Positioner。不传沿用 Base UI 默认（0）。 */
+  alignOffset?: ComponentProps<typeof BaseSelect.Positioner>['alignOffset']
+  /** 放不下时如何避让，转给 Positioner。不传沿用 Base UI 默认。 */
+  collisionAvoidance?: ComponentProps<typeof BaseSelect.Positioner>['collisionAvoidance']
 }
 
 /**
  * 组合 Portal > Positioner(sideOffset 6, alignItemWithTrigger=false) > Popup。
+ * side / align / sideOffset / alignOffset / collisionAvoidance 转给 Positioner，其余给 Popup。
  * 不渲染 Select.List 时 Base UI 让 Popup 自身承担 role="listbox"。
  */
-function SelectPopup({ className, children, ...props }: SelectPopupProps) {
+function SelectPopup({
+  className,
+  side,
+  align,
+  sideOffset = 6,
+  alignOffset,
+  collisionAvoidance,
+  children,
+  ...props
+}: SelectPopupProps) {
   return (
     <BaseSelect.Portal>
       <BaseSelect.Positioner
-        sideOffset={6}
+        side={side}
+        align={align}
+        sideOffset={sideOffset}
+        alignOffset={alignOffset}
+        collisionAvoidance={collisionAvoidance}
         alignItemWithTrigger={false}
         className="rk-select__positioner"
       >

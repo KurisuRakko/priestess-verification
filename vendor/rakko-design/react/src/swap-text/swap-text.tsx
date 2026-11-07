@@ -8,8 +8,9 @@
  *   - <SwapText value>：包一层 span 的现成组件。mode='sequence'（默认）走 useSwapText；
  *     mode='crossfade' 是两份叠在同一个格子里同时交叉淡化（宽度取两者较宽的，换字过程中不跳；第一次出现也淡入）。
  *
- * 时长：旧内容淡出 = --motion-duration-exit × 0.6（与 AnimatedList 交叉淡化同一个分寸），也是新内容淡入前的等待；
- * 新内容淡入 --motion-duration-enter；消失时的略收用 snappy 弹簧。减弱动态效果时直接换。
+ * 节奏（swap-timing.ts，与 AnimatedList 交叉淡化共用）：旧内容淡出 = --motion-duration-exit × 0.6，淡出进行到 60% 时
+ * 新内容用减速曲线淡入（文字换值 --motion-duration-state，整块互换 --motion-duration-enter）；连着换时从当前亮度接着走，
+ * 不从 0 / 1 起跳（planSwap）。消失时的略收用 snappy 弹簧。减弱动态效果时直接换。
  */
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
@@ -17,9 +18,17 @@ import { cx } from '../cx'
 import { MOTION } from '../motion'
 import { reducedMotionQuery } from '../motion-dom'
 import { SPRINGS, springEasing } from '../spring'
+import {
+  SWAP_EASE_ENTER,
+  opacityOf,
+  planSwap,
+  resumeMs,
+  swapEnterDelay,
+  swapFadeMs,
+} from './swap-timing'
 
-/** 旧内容淡出时长占 --motion-duration-exit 的比例（同 AnimatedList 的 GHOST_FADE_RATIO）。 */
-export const SWAP_FADE_RATIO = 0.6
+// 节奏常量在 swap-timing.ts（与 AnimatedList 的交叉淡化共用），这里转出给测试和调用方对照
+export { SWAP_EASE_ENTER, SWAP_ENTER_AT, SWAP_FADE_RATIO } from './swap-timing'
 /** 被替换的内容（useSwapPresence 的卸载拷贝）淡出时收到多大。 */
 export const SWAP_SHRINK = 0.96
 
@@ -35,11 +44,6 @@ const SCRUB_ATTRS = [
 
 function reduced(): boolean {
   return reducedMotionQuery()?.matches ?? false
-}
-
-/** 旧内容淡出的时长，也是新内容淡入前的等待。 */
-function swapDelay(): number {
-  return Math.round(MOTION.durationExitMs * SWAP_FADE_RATIO)
 }
 
 function canAnimate(el: Element): boolean {
@@ -70,14 +74,15 @@ function dressGhost(ghost: HTMLElement, box: { top: number; left: number; width:
 function fadeOutGhost(ghost: HTMLElement, from = 1): void {
   const done = () => ghost.remove()
   ghost
-    .animate({ opacity: [from, 0] }, { duration: swapDelay(), easing: MOTION.easeStandard, fill: 'forwards' })
+    .animate({ opacity: [from, 0] }, { duration: swapFadeMs(), easing: MOTION.easeStandard, fill: 'forwards' })
     .finished.then(done, done)
 }
 
-function fadeInAfterGhost(el: HTMLElement): void {
-  el.animate(
+/** 新内容淡入。文字换值用状态时长（一行字，短而轻）；整块互换（空状态）用进场时长。 */
+function fadeInAfterGhost(el: HTMLElement, duration: number = MOTION.durationEnterMs): Animation {
+  return el.animate(
     { opacity: [0, 1] },
-    { duration: MOTION.durationEnterMs, delay: swapDelay(), easing: MOTION.easeStandard, fill: 'backwards' },
+    { duration, delay: swapEnterDelay(), easing: SWAP_EASE_ENTER, fill: 'backwards' },
   )
 }
 
@@ -90,8 +95,7 @@ let ghostPending = false
 function leavePresenceGhost(el: HTMLElement): void {
   if (!el.isConnected || !el.parentElement || el.offsetWidth === 0 || !canAnimate(el) || reduced()) return
   // 正在淡入 / 淡出到一半的从此刻的不透明度接着淡；读不到（没有样式引擎）按 1
-  const raw = getComputedStyle(el).opacity
-  const opacity = raw === '' ? 1 : Number(raw)
+  const opacity = opacityOf(el)
   if (!(opacity > 0.01)) return
   const ghost = el.cloneNode(true) as HTMLElement
   dressGhost(ghost, { top: el.offsetTop, left: el.offsetLeft, width: el.offsetWidth })
@@ -128,6 +132,10 @@ interface TextSnapshot {
   left: number
   width: number
   height: number
+  /** 拍下时的不透明度：连按时上一次的新字可能还在淡入，拷贝从这里接着淡，不从 1 闪出来。 */
+  opacity: number
+  /** 拍下时只占一行：拷贝不许折行（offsetWidth 取整，可能比文字实际宽度窄零点几像素）。 */
+  singleLine: boolean
 }
 
 /**
@@ -138,6 +146,11 @@ interface TextSnapshot {
 export function useSwapText(ref: RefObject<HTMLElement | null>, value: string): void {
   const prev = useRef(value)
   const snapshot = useRef<TextSnapshot | null>(null)
+  const fadeIn = useRef<Animation | null>(null)
+  /** 上一次换值留下的旧字拷贝（可能还在淡出）。 */
+  const ghostRef = useRef<HTMLElement | null>(null)
+  /** 上一次排定的新字进场时刻（performance.now() 时基），没排过为 0。 */
+  const enterAt = useRef(0)
   // 渲染期读 DOM 是有意的：这是 React 把旧文字换掉之前最后一次能拍到它的时机
   const el = ref.current
   if (prev.current !== value && el && !snapshot.current && el.isConnected) {
@@ -147,6 +160,8 @@ export function useSwapText(ref: RefObject<HTMLElement | null>, value: string): 
       left: el.offsetLeft,
       width: el.offsetWidth,
       height: el.offsetHeight,
+      opacity: opacityOf(el),
+      singleLine: el.getClientRects().length <= 1,
     }
   }
   useLayoutEffect(() => {
@@ -156,11 +171,36 @@ export function useSwapText(ref: RefObject<HTMLElement | null>, value: string): 
     snapshot.current = null
     const node = ref.current
     if (!node || !snap || !node.isConnected || snap.width === 0 || !canAnimate(node) || reduced()) return
+    fadeIn.current?.cancel()
+    const plan = planSwap(snap.opacity, enterAt.current)
+    if (plan.kind === 'wait') {
+      // 上一次的新字还没露面、旧字拷贝还在淡出：新字顶替它、按原定时刻进场，不提前和那份旧拷贝叠出一个过时的字
+      fadeIn.current = node.animate(
+        { opacity: [0, 1] },
+        { duration: MOTION.durationStateMs, delay: plan.delay, easing: SWAP_EASE_ENTER, fill: 'backwards' },
+      )
+      return
+    }
+    if (plan.kind === 'resume') {
+      // 连按：上一次的新字还在淡入。不留拷贝，新字从此刻的亮度接着淡到 1——只会越来越清楚，不会再暗下去；
+      // 上一次还在淡出的旧拷贝（此时只剩一两成）直接摘掉，不和新字叠在一起
+      ghostRef.current?.remove()
+      ghostRef.current = null
+      enterAt.current = 0
+      fadeIn.current = node.animate(
+        { opacity: [plan.from, 1] },
+        { duration: resumeMs(MOTION.durationStateMs, plan.from), easing: SWAP_EASE_ENTER, fill: 'backwards' },
+      )
+      return
+    }
     const ghost = snap.clone
     dressGhost(ghost, snap)
+    if (snap.singleLine) ghost.style.whiteSpace = 'nowrap'
     node.after(ghost)
     fadeOutGhost(ghost)
-    fadeInAfterGhost(node)
+    ghostRef.current = ghost
+    enterAt.current = performance.now() + swapEnterDelay()
+    fadeIn.current = fadeInAfterGhost(node, MOTION.durationStateMs)
   }, [ref, value])
 }
 
@@ -176,13 +216,19 @@ export interface SwapTextProps {
    * @default 'sequence'
    */
   mode?: SwapTextMode
+  /**
+   * crossfade 是否按正常文本折行：为 true 时新旧两份都不截断、不省略，格子高度取较高者。
+   * 只对 crossfade 生效——sequence 只有一份文字，本来就随容器折行，旧字拷贝也按拍下的折行摆放。
+   * @default false
+   */
+  wrap?: boolean
   className?: string
 }
 
 /** 一段会变的文字（标题、计数、按钮文字）：换了不硬切。 */
-export function SwapText({ value, mode = 'sequence', className }: SwapTextProps) {
+export function SwapText({ value, mode = 'sequence', wrap = false, className }: SwapTextProps) {
   return mode === 'crossfade' ? (
-    <CrossfadeText value={value} className={className} />
+    <CrossfadeText value={value} wrap={wrap} className={className} />
   ) : (
     <SequenceText value={value} className={className} />
   )
@@ -198,26 +244,80 @@ function SequenceText({ value, className }: { value: string; className?: string 
   )
 }
 
-/** 连着换只留最近的一份旧字；空串不画旧字；旧字淡完（animationend）就摘掉。 */
-function CrossfadeText({ value, className }: { value: string; className?: string }) {
+/** crossfade 的新字这一段淡入从哪里起步：换值时记下，layout effect 里起动画。 */
+interface CrossfadeEntry {
+  /** 0 = 完整淡入；> 0 = 上一段淡入没播完，从这个亮度接着淡。 */
+  from: number
+  n: number
+}
+
+/**
+ * 新旧两份叠在同一个格子里同时淡化（WAAPI，--motion-duration-state、标准曲线）。
+ * 新字那一格是同一个元素，换值时读它此刻的不透明度：
+ *   - 已经稳定：旧字作为一份 aria-hidden 的拷贝从此刻亮度淡到 0，新字从 0 淡入（连着换只留最近一份旧字，空串不画）；
+ *   - 上一段淡入没播完（连点）：不再出旧字拷贝，新字从此刻的亮度接着淡到 1，不从 0 / 1 起跳；正在淡出的那份旧字照常淡完。
+ * 旧字淡完就摘掉。减弱动态效果或没有 WAAPI 时直接换字，不画旧字。
+ * wrap 时挂 .rk-swap-text--wrap：两份都按正常文本折行，格子高度由 CSS grid 取较高的一份。
+ */
+function CrossfadeText({ value, wrap, className }: { value: string; wrap?: boolean; className?: string }) {
+  const inRef = useRef<HTMLSpanElement>(null)
+  const outRef = useRef<HTMLSpanElement>(null)
+  const fadeIn = useRef<Animation | null>(null)
   const [shown, setShown] = useState(value)
-  const [leaving, setLeaving] = useState<{ text: string; id: number } | null>(null)
+  const [entry, setEntry] = useState<CrossfadeEntry>({ from: 0, n: 0 })
+  const [leaving, setLeaving] = useState<{ text: string; id: number; from: number } | null>(null)
   if (shown !== value) {
+    // 渲染期读 DOM 是有意的：新字那一格还没换内容，读到的是旧字此刻（含进行中动画）的亮度
+    const el = inRef.current
+    const animated = el !== null && canAnimate(el) && !reduced()
+    const opacity = animated ? opacityOf(el) : 1
+    const plan = planSwap(opacity, 0)
     setShown(value)
-    setLeaving(shown === '' ? null : { text: shown, id: (leaving?.id ?? 0) + 1 })
+    if (!animated) {
+      setLeaving(null)
+    } else if (plan.kind === 'swap') {
+      setLeaving(shown === '' ? null : { text: shown, id: (leaving?.id ?? 0) + 1, from: opacity })
+      setEntry({ from: 0, n: entry.n + 1 })
+    } else {
+      setEntry({ from: plan.kind === 'resume' ? plan.from : 0, n: entry.n + 1 })
+    }
   }
+
+  // 新字淡入：首次出现也淡入；换值时先撤掉上一段
+  useLayoutEffect(() => {
+    const el = inRef.current
+    fadeIn.current?.cancel()
+    fadeIn.current = null
+    if (!el || !canAnimate(el) || reduced()) return
+    const { from } = entry
+    fadeIn.current = el.animate(
+      { opacity: [from, 1] },
+      { duration: resumeMs(MOTION.durationStateMs, from), easing: MOTION.easeStandard, fill: 'backwards' },
+    )
+  }, [entry])
+
+  // 旧字淡出，淡完摘掉
+  const leavingId = leaving?.id
+  const leavingFrom = leaving?.from
+  useLayoutEffect(() => {
+    const el = outRef.current
+    if (leavingId === undefined || leavingFrom === undefined || !el) return
+    const done = () => setLeaving((current) => (current?.id === leavingId ? null : current))
+    const fade = el.animate(
+      { opacity: [leavingFrom, 0] },
+      { duration: MOTION.durationStateMs, easing: MOTION.easeStandard, fill: 'forwards' },
+    )
+    fade.finished.then(done, () => {})
+    return () => fade.cancel()
+  }, [leavingId, leavingFrom])
+
   return (
-    <span className={cx('rk-swap-text', 'rk-swap-text--crossfade', className)}>
-      <span key={`in-${value}`} className="rk-swap-text__in">
+    <span className={cx('rk-swap-text', 'rk-swap-text--crossfade', wrap && 'rk-swap-text--wrap', className)}>
+      <span ref={inRef} className="rk-swap-text__in">
         {value}
       </span>
       {leaving ? (
-        <span
-          key={`out-${leaving.id}`}
-          className="rk-swap-text__out"
-          aria-hidden="true"
-          onAnimationEnd={() => setLeaving((current) => (current?.id === leaving.id ? null : current))}
-        >
+        <span key={`out-${leaving.id}`} ref={outRef} className="rk-swap-text__out" aria-hidden="true">
           {leaving.text}
         </span>
       ) : null}

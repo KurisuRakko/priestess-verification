@@ -5,9 +5,13 @@ import { cx } from '../cx.js'
 
 /**
  * plain：iOS 导航栏 / 工具栏里的按钮——强调色文字、无底无框、命中区 44×44；
- * 按下变淡（不缩放、不下沉），不带 ripple 状态层。其余四种是 Rakko 的常规按钮。
+ * 按下变淡并轻轻缩小（不下沉）；同常规按钮带 ripple 墨点、hover 状态层与禁用透明度（RakkoNotes 的
+ * ToolbarButton 建在 IconButton / ghost Button 上，本来就有）。其余五种是 Rakko 的常规按钮，
+ * 其中 filled 是实心强调色底 + 纸色文字的确认动作，primary 保持原来的淡色描边外观；
+ * filled-danger 是 filled 的危险版（实心 error 底 + 纸色文字），用于确认框里「删除」这类不可撤销的确认动作，
+ * danger 仍是淡色描边。
  */
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'plain'
+export type ButtonVariant = 'filled' | 'filled-danger' | 'primary' | 'secondary' | 'ghost' | 'danger' | 'plain'
 
 export interface ButtonProps
   extends Omit<UIButtonProps, 'className' | 'variant'> {
@@ -21,7 +25,7 @@ export interface ButtonProps
 }
 
 /**
- * Rakko 按钮：Base UI Button 行为 + data-ripple 状态层（plain 不带）。
+ * Rakko 按钮：Base UI Button 行为 + data-ripple 状态层（含 plain）。
  * 有 icon 或 plain 时文字包一层 .rk-button__label，过长单行省略。
  * ref 作为普通 prop 透传（React 19）。
  */
@@ -38,7 +42,7 @@ export function Button({
   return (
     <UIButton
       {...props}
-      data-ripple={plain ? undefined : true}
+      data-ripple
       data-emphasized={emphasized ? '' : undefined}
       data-has-icon={icon != null ? '' : undefined}
       className={cx('rk-button', `rk-button--${variant}`, className)}
@@ -71,7 +75,7 @@ export interface IconButtonProps
 
 /**
  * Rakko 图标按钮：方形、中心 ripple；切换状态时用 aria-pressed 提供额外线索。
- * plain 变体 44×44、强调色、无 ripple。
+ * plain 变体 44×44、强调色，同样带中心 ripple。
  */
 export function IconButton({
   'aria-label': ariaLabel,
@@ -85,8 +89,8 @@ export function IconButton({
     <UIButton
       {...props}
       aria-label={ariaLabel}
-      data-ripple={plain ? undefined : true}
-      data-ripple-centered={plain ? undefined : true}
+      data-ripple
+      data-ripple-centered
       aria-pressed={pressed === undefined ? undefined : pressed ? 'true' : 'false'}
       className={cx('rk-icon-button', plain && 'rk-icon-button--plain', className)}
     />

@@ -7,13 +7,16 @@
  *   - 接管后跟手；超过按钮总宽的部分走橡皮筋；没有按钮的那一侧拖不动。
  *     开了 full swipe 的一侧（leadingFullSwipe / trailingFullSwipe）一直跟手到行宽，超过行宽才走橡皮筋。
  *   - 松手：按「当前位置 + 速度投射」（spring.ts 的 projectMomentum）决定展开还是收起——快甩按方向，
- *     中速看投射落点，停顿后松手看当前位置；再从当前视觉位置带着松手速度用 snappy 弹簧收尾
- *     （springEasing 现算 linear() 曲线写到 --rk-swipe-ease / --rk-swipe-duration）：
- *     甩得快的起步陡、收尾短，慢慢拖的从静止起步；收起时初速度限幅，不越过 0（不露另一侧的按钮）。
+ *     中速看投射落点，停顿后松手看当前位置；再从当前视觉位置带着松手速度用弹簧收尾
+ *     （springCurve response 0.42 现算 linear() 曲线写到 --rk-swipe-ease / --rk-swipe-duration，RakkoNotes 原值）：
+ *     甩得快的起步陡、收尾短，慢慢拖的从静止起步；初速度限幅，收起时曲线 clamp，不越过 0（不露另一侧的按钮）。
  *   - full swipe（iOS 的 performsFirstActionWithFullSwipe）：拖过行宽 60% 且比按钮总宽多 40px 进入「待触发」
  *     （根上 data-armed）——最外侧按钮（trailing 最右、leading 最左）铺满整片按钮区（--rk-swipe-arm 0 → 1），
  *     支持振动的设备轻振一下；往回退 12px 解除。待触发时松手执行最外侧动作，和点按钮走同一条路径：
  *     trailing 侧整行先滑出再调 onAction（行应随之被 removing 移除），leading 侧收起后调 onAction。
+ *   - 滑出（slideOut）：trailing 侧点了会把行拿掉的动作，内容层带着松手速度继续向左滑出整行宽、被点的按钮铺满，
+ *     随后行由调用方 removing 收拢。默认只有 trailingFullSwipe 的最外侧动作滑出；每个动作可用 slideOut 单独开关
+ *     （废纸篓里要先确认的「删除」传 false，点了不滑出；不在最外侧的「恢复」传 true）。
  *   - 同一时间只展开一行；点行外任意处、页面开始滚动都会收起；展开时点行本体只收起、不触发 onPress。
  *
  * 位移放在根元素的 CSS 变量 --rk-swipe-x 上（@property 注册为 <length>，可以过渡）：
@@ -21,6 +24,10 @@
  *
  * 长按 / 右键菜单不在这里实现：调用方给内容层挂 data-context-action（经 ...rest 透传），
  * 由 design-system 的 context-action 运行时统一处理；这里只在有该属性时给长按的缩放反馈。
+ *
+ * 按下预取（onPressStart）：进入后要用的数据趁按下就开始取。鼠标按下立即调（不会是滚动起手）；
+ * 触摸按住 80ms 没动才调（滚动 / 横滑起手的按下不发请求）；比这更快的轻点在抬手时（click 之前）补调。
+ * 开始横滑、竖向滚动、原生拖起时取消还没到点的预取；已展开的行按下只是收起，不预取。
  *
  * 原生拖放（如宽屏分栏里把行拖进文件夹，鼠标设备）：传 draggable（经 ...rest 落在内容层），dataTransfer 在
  * onDragStart 里写、onDragEnd 收尾。浏览器开始拖动时先作废本行的滑动跟手与按压反馈（已经拉开一点的行收回去），
@@ -42,7 +49,7 @@ import type {
 import { cx } from '../cx'
 import { cancelFlipAppear } from '../animated-list/flip-ids'
 import { ListGroupContext, SwipeRowContext } from '../list/list-context'
-import { SPRINGS, prefersReducedMotion, projectMomentum, rubberBand, springEasing } from '../spring'
+import { prefersReducedMotion, projectMomentum, rubberBand, springCurve } from '../spring'
 
 export type SwipeActionTone = 'neutral' | 'info' | 'success' | 'warning' | 'error'
 
@@ -53,6 +60,12 @@ export interface SwipeAction {
   icon?: ReactNode
   /** @default 'neutral' */
   tone?: SwipeActionTone
+  /**
+   * 点了（或 full swipe 触发）之后行会被拿掉：内容层先继续向左滑出整行宽、这个按钮铺满，再调 onAction，
+   * 行随后由 removing 收拢；只对 trailing 侧有效，reduced-motion 下照常先收起。
+   * 不传时 trailingFullSwipe 的最外侧动作滑出、其余不滑出；要先确认的删除传 false。
+   */
+  slideOut?: boolean
   onAction: () => void
 }
 
@@ -63,6 +76,11 @@ export interface SwipeRowProps extends Omit<ComponentProps<'div'>, 'children' | 
   trailing?: SwipeAction[]
   /** 点按 / Enter / Space 触发；给了就把内容层标成 role="button"。 */
   onPress?: () => void
+  /**
+   * 按下（行未展开、还没开始横滑）：预取进入后要用的数据。鼠标按下立即调；触摸按住 80ms 没动才调，
+   * 更快的轻点在抬手时补调；开始横滑 / 滚动 / 原生拖起时取消。一次按下最多调一次。
+   */
+  onPressStart?: () => void
   /** 为 true 时行高收起 + 淡出。 */
   removing?: boolean
   /** removing 的收起动画结束后调用一次（父组件据此真正删掉这一行）。 */
@@ -92,6 +110,8 @@ const HOLD_FEEDBACK_DELAY = 150
 const HOLD_FEEDBACK_END = 500
 /** 触摸按下多久没动才显示按压高亮（ms），避免一滑就闪。 */
 const PRESS_DELAY = 70
+/** 触摸按住多久没动才预取（ms）：滚动 / 横滑起手的按下不发请求；更快的轻点在抬手时补发。鼠标按下即预取。 */
+const PREFETCH_DELAY = 80
 /** 轻点后按压高亮保留多久（ms），免得快速点按看不到反馈。 */
 const PRESS_FLASH = 120
 /** 速度阈值（px/ms）：超过就按甩动方向吸附。 */
@@ -109,9 +129,12 @@ const ARM_VIBRATE_MS = 8
 const SWIPED_OUT_COLLAPSE_DELAY = 140
 /** 滑出后这么久（ms，约等于一次 snappy 收尾）调用方仍没设 removing，就把行滑回来，不让它停在屏外。 */
 const SLIDE_BACK_AFTER_MS = 500
-/** 吸附弹簧：与 --motion-spring-snappy 同参（临界阻尼）。 */
-const SETTLE_SPRING = SPRINGS.snappy
-const SETTLE_OMEGA = (2 * Math.PI) / SETTLE_SPRING.response
+/**
+ * 吸附弹簧（照搬 RakkoNotes lists/SwipeRow.tsx）：springCurve response 0.42、临界阻尼，静止起步时和 snappy 的观感接近，
+ * 带初速度时过冲与收尾按 RakkoNotes 的积分。
+ */
+const SETTLE_RESPONSE = 0.42
+const SETTLE_OMEGA = (2 * Math.PI) / SETTLE_RESPONSE
 /** 收起动画的兜底余量（ms）：transitionend 没来也会在「动画时长 + 余量」后调 onRemoved。 */
 const REMOVE_GRACE = 120
 /**
@@ -152,13 +175,13 @@ function parseDuration(text: string, fallback: number): number {
 }
 
 /**
- * 松手速度（px/ms）换成弹簧的归一化初速度（「进度 / 秒」，即 px/s ÷ 本次总位移）并限幅：
- * 剩余距离很短时折出来的进度速度会大得离谱。展开最多允许 1.3ω（snappy 的一点点过冲）；
- * 收起（toZero）限到 ω——临界阻尼弹簧初速度不超过 ω 就不会越过终点，不露另一侧的按钮。
+ * 松手速度（px/ms）换成弹簧的归一化初速度（「进度 / 秒」，即 px/s ÷ 本次总位移）并限幅到 1.3ω：
+ * 剩余距离很短时折出来的进度速度会大得离谱，最多允许一点过冲（RakkoNotes 原值）。
+ * 收起不越过 0（不露另一侧的按钮）由曲线的 clamp 保证。
  */
-export function settleVelocity(velocity: number, distance: number, toZero: boolean): number {
+export function settleVelocity(velocity: number, distance: number): number {
   if (distance === 0) return 0
-  const limit = SETTLE_OMEGA * (toZero ? 1 : 1.3)
+  const limit = SETTLE_OMEGA * 1.3
   return Math.max(-limit, Math.min(limit, (velocity * 1000) / distance))
 }
 
@@ -185,6 +208,9 @@ interface Gesture {
   velocity: number
   lastOffset: number
   pressTimer?: number
+  prefetchTimer?: number
+  /** onPressStart 已经调过（预取过）。 */
+  prefetched?: boolean
   holdTimer?: number
   holdEndTimer?: number
   /** 摘掉按下时挂在 window 上的监听器。 */
@@ -197,6 +223,7 @@ export function SwipeRow({
   leading = [],
   trailing = [],
   onPress,
+  onPressStart,
   removing = false,
   onRemoved,
   flipKey,
@@ -225,6 +252,9 @@ export function SwipeRow({
   const focusSideRef = useRef<Side>('none')
   const [side, setSide] = useState<Side>('none')
   const [dragging, setDragging] = useState(false)
+  // 预取的计时器 / 抬手补发在按下之后才到点：经 ref 调最新一次渲染的回调
+  const onPressStartRef = useRef(onPressStart)
+  onPressStartRef.current = onPressStart
 
   const leadingWidth = leading.length * SWIPE_ACTION_WIDTH
   const trailingWidth = trailing.length * SWIPE_ACTION_WIDTH
@@ -241,7 +271,7 @@ export function SwipeRow({
 
   /**
    * 设位移。animate 时从当前视觉位置（吸附动画进行中就取动画当下的值）带初速度 velocity（px/ms）弹到 x：
-   * 按这一段的位移把速度换成归一化初速度，现算 snappy 弹簧曲线写到根上。
+   * 按这一段的位移把速度换成归一化初速度，现算吸附弹簧曲线写到根上。
    */
   const setOffset = useCallback((x: number, animate: boolean, velocity = 0) => {
     const root = rootRef.current
@@ -250,7 +280,7 @@ export function SwipeRow({
     if (!root) return
     const distance = x - from
     if (animate && !prefersReducedMotion() && Math.abs(distance) >= 0.5) {
-      const curve = springEasing(SETTLE_SPRING, settleVelocity(velocity, distance, x === 0))
+      const curve = springCurve({ response: SETTLE_RESPONSE, velocity: settleVelocity(velocity, distance), clamp: x === 0 })
       root.style.setProperty('--rk-swipe-ease', curve.easing)
       root.style.setProperty('--rk-swipe-duration', `${curve.durationMs}ms`)
       root.dataset.settling = ''
@@ -298,9 +328,12 @@ export function SwipeRow({
 
   /**
    * 执行一个滑动动作：点按钮（含键盘）和 full swipe 松手都走这里，回调完全相同。
-   * trailingFullSwipe 的最外侧动作：内容层带着松手速度继续向左滑出整行宽，行由调用方 removing 收拢；
-   * 其余（以及 reduced-motion 下）先收起再执行。
+   * 滑出的动作（slideOut，默认是 trailingFullSwipe 的最外侧）：内容层带着松手速度继续向左滑出整行宽，
+   * 行由调用方 removing 收拢；其余（以及 reduced-motion 下）先收起再执行。
    */
+  const slidesOut = (action: SwipeAction, which: 'leading' | 'trailing') =>
+    which === 'trailing' &&
+    (action.slideOut ?? (trailingFullSwipe && action === trailing[trailing.length - 1]))
   const removingRef = useRef(removing)
   removingRef.current = removing
   const slideBackTimer = useRef(0)
@@ -309,9 +342,9 @@ export function SwipeRow({
     // 已经滑出、动作已经执行过：滑出途中再点（铺满的最外侧按钮仍在屏上）不再重复执行
     if (root?.dataset.swipedOut !== undefined) return
     const outer = which === 'trailing' && trailingFullSwipe && action === trailing[trailing.length - 1]
-    if (outer && root && !prefersReducedMotion()) {
-      // 滑出期间最外侧按钮铺满整片按钮区
-      root.dataset.armed = 'trailing'
+    if (slidesOut(action, which) && root && !prefersReducedMotion()) {
+      // full swipe 那一侧的最外侧按钮：滑出期间铺满整片按钮区；其余滑出的按钮由 data-slide-out 铺满
+      if (outer) root.dataset.armed = 'trailing'
       root.dataset.swipedOut = ''
       setOffset(-root.offsetWidth, true, velocity)
       if (openRow?.root === root) openRow = null
@@ -418,6 +451,7 @@ export function SwipeRow({
       const g = gestureRef.current
       if (g) {
         window.clearTimeout(g.pressTimer)
+        window.clearTimeout(g.prefetchTimer)
         window.clearTimeout(g.holdTimer)
         window.clearTimeout(g.holdEndTimer)
         g.detach()
@@ -428,6 +462,7 @@ export function SwipeRow({
 
   const clearGestureTimers = (g: Gesture) => {
     window.clearTimeout(g.pressTimer)
+    window.clearTimeout(g.prefetchTimer)
     window.clearTimeout(g.holdTimer)
     window.clearTimeout(g.holdEndTimer)
   }
@@ -447,6 +482,11 @@ export function SwipeRow({
     g.detach()
 
     if (g.phase !== 'dragging') {
+      // 比 PREFETCH_DELAY 还快的轻点：抬手时（click 之前）补发预取
+      if (event?.type === 'pointerup' && g.phase === 'pending' && g.startOffset === 0 && !g.prefetched) {
+        g.prefetched = true
+        onPressStartRef.current?.()
+      }
       // 轻点：按压高亮留一下再淡出，免得快速点按看不到反馈
       if (event?.type === 'pointerup' && g.phase === 'pending' && g.startOffset === 0) {
         const root = rootRef.current
@@ -624,7 +664,18 @@ export function SwipeRow({
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', cancel)
 
-    if (offsetRef.current !== 0) return // 展开状态：只等收起，不给按压反馈
+    if (offsetRef.current !== 0) return // 展开状态：只等收起，不给按压反馈、不预取
+    if (onPressStart && event.pointerType === 'mouse') {
+      // 鼠标按下不会是滚动起手：立即预取，多赢一个按住的时长
+      g.prefetched = true
+      onPressStart()
+    } else if (onPressStart) {
+      g.prefetchTimer = window.setTimeout(() => {
+        if (gestureRef.current !== g || g.phase !== 'pending') return
+        g.prefetched = true
+        onPressStartRef.current?.()
+      }, PREFETCH_DELAY)
+    }
     if (event.pointerType === 'mouse') {
       root.dataset.pressed = ''
     } else {
@@ -758,6 +809,7 @@ export function SwipeRow({
             className="rk-swipe-row__action"
             data-tone={action.tone ?? 'neutral'}
             data-outer={fullSwipe && action === outer ? '' : undefined}
+            data-slide-out={slidesOut(action, which) ? '' : undefined}
             onClick={() => {
               // 键盘点的：按钮马上要变 inert，焦点先还给内容层
               if (actionsRef.current[which]?.contains(document.activeElement)) {

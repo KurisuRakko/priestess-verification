@@ -8,7 +8,7 @@
 //   的部件像 iOS 那样新的从 40px 外滑入、旧的向另一侧滑出。克隆放在两层之上，所以页面滑动时栏不跟着动、也不被新页盖住。
 //
 // 调用方（engine.ts）先把两层置为 moving（固定在视口、scrollTop = 各自滚动位置），再建转场：
-//   play()             程序化转场：从头播到尾，位移用 SPRINGS.page，透明度按 MOTION 的时长与 standard 曲线；
+//   play()             程序化转场：从头播到尾，位移用 pageSpringEasing()（SPRINGS.page 的解析解，与 RakkoNotes 逐字一致），透明度按 MOTION 的时长与 standard 曲线；
 //   setProgress(t)     跟手：t = 从出发页到目标页的进度，0…1；
 //   settle(t, v)       松手：从当前位置弹簧走到 0 或 1，曲线现算（springCurve，同一条 page 弹簧），
 //                      初速度 = 松手速度（px/ms）÷ 剩余距离；
@@ -21,7 +21,7 @@
 // 停在半路的话两层会一直是 moving（固定、不可点、整页滑不动）。所以每段动画另有兜底：页面隐藏、从 bfcache 恢复时
 // 直接到终点（看不见，不算硬切）；看门狗在预定时长 + NAV_WATCHDOG_MARGIN_MS 后强制到终点。
 import { MOTION } from '../motion'
-import { SPRINGS, prefersReducedMotion, springCurve, springEasing } from '../spring'
+import { SPRINGS, pageSpringEasing, prefersReducedMotion, springCurve } from '../spring'
 import type { SpringEasing } from '../spring'
 
 export type NavigationDirection = 'forward' | 'back'
@@ -242,7 +242,7 @@ function buildGhost(
 
 export function createNavTransition({ over, under, direction, interactive = false }: NavTransitionOptions): NavTransition {
   const reduced = !interactive && prefersReducedMotion()
-  const page = springEasing(SPRINGS.page)
+  const page = pageSpringEasing()
   const width = over.offsetWidth || window.innerWidth
   const forward = direction === 'forward'
   const from = forward ? under : over

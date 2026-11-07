@@ -1,0 +1,101 @@
+/* rk-progress-ring：圆环进度，配色与线性 rk-progress 一致（轨道 neutral-4、指示 accent）。
+   SVG 两个同心圆：底圈是轨道，上圈 pathLength=1，用 stroke-dasharray: 1 + stroke-dashoffset
+   画出 0–1 的弧；整张 SVG 逆时针转 90°，让弧从 12 点方向顺时针长出。
+   不确定型（data-indeterminate）画一段固定 1/4 弧并整体匀速旋转；
+   reduced-motion 下不旋转、不缓动弧长，改为原位的透明度呼吸，保留「仍在进行」的反馈。 */
+
+.rk-progress-ring {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--rk-progress-ring-size, 48px);
+  height: var(--rk-progress-ring-size, 48px);
+}
+
+.rk-progress-ring__svg {
+  display: block;
+  grid-area: 1 / 1;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+
+.rk-progress-ring__track,
+.rk-progress-ring__indicator {
+  fill: none;
+}
+
+.rk-progress-ring__track {
+  stroke: var(--color-neutral-4);
+}
+
+.rk-progress-ring__indicator {
+  stroke: var(--color-accent);
+  stroke-linecap: round;
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: calc(1 - var(--rk-progress-ring-fraction, 0));
+  /* 进度会频繁更新：linear 让相邻两次更新首尾相接，与线性 Progress 一致。 */
+  transition: stroke-dashoffset var(--motion-duration-state) linear;
+}
+
+/* 0 时圆头 linecap 会留下一个点，直接隐藏。 */
+.rk-progress-ring:not([data-indeterminate]) .rk-progress-ring__indicator {
+  opacity: min(1, calc(var(--rk-progress-ring-fraction, 0) * 1000));
+}
+
+.rk-progress-ring[data-indeterminate] .rk-progress-ring__indicator {
+  stroke-dasharray: 0.25 0.75;
+  stroke-dashoffset: 0;
+  transition: none;
+}
+
+/* 旋转放在 SVG 上：只走合成。起始角 -90° 并入关键帧。 */
+.rk-progress-ring[data-indeterminate] .rk-progress-ring__svg {
+  animation: rk-progress-ring-spin 1.1s linear infinite;
+}
+
+.rk-progress-ring__label {
+  grid-area: 1 / 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--color-neutral-7);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@keyframes rk-progress-ring-spin {
+  from {
+    transform: rotate(-90deg);
+  }
+
+  to {
+    transform: rotate(270deg);
+  }
+}
+
+@keyframes rk-progress-ring-breathe {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rk-progress-ring__indicator {
+    transition: none;
+  }
+
+  .rk-progress-ring[data-indeterminate] .rk-progress-ring__svg {
+    animation: none;
+  }
+
+  .rk-progress-ring[data-indeterminate] .rk-progress-ring__indicator {
+    animation: rk-progress-ring-breathe 1.2s ease-in-out infinite alternate;
+  }
+}

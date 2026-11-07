@@ -1,6 +1,8 @@
 /* rk-tabs 视觉移植自 showcase motion.css 的 .motion-tabs/.motion-tab/__indicator/tabpanel。
    List 从固定 repeat(3, 1fr) 改为 flex，Tab 均分宽度；
-   Indicator 用 Base UI 提供的 --active-tab-* 变量定位，只过渡 translate/width。 */
+   Indicator 用 Base UI 提供的 --active-tab-* 变量定位：画在 100px 宽的基准条上（与 tabs.tsx 的
+   TABS_INDICATOR_BASE_PX 一致），translate 到当前 tab、scale 到它的宽度，只过渡 translate / scale，
+   曲线是 snappy 弹簧（CSS transition 中途改目标时从当前位置接着走）。 */
 
 .rk-tabs {
   position: relative;
@@ -31,14 +33,17 @@
   position: absolute;
   left: 0;
   bottom: -1px;
+  width: 100px;
   height: 2px;
-  border-radius: 1px;
+  /* 横向缩放会把圆角一起压扁 / 拉长：水平半径按缩放比反除回去，静止时两端仍是 1px 的半圆 */
+  border-radius: calc(1px / var(--rk-tabs-indicator-scale-x, 1)) / 1px;
   background: var(--color-accent);
+  transform-origin: 0 0;
   translate: var(--active-tab-left);
-  width: var(--active-tab-width);
-  transition-property: translate, width;
-  transition-duration: var(--motion-duration-enter);
-  transition-timing-function: var(--motion-ease-standard);
+  scale: var(--rk-tabs-indicator-scale-x, 1) 1;
+  transition-property: translate, scale;
+  transition-duration: var(--motion-spring-snappy-duration);
+  transition-timing-function: var(--motion-spring-snappy);
 }
 
 .rk-tabpanel {

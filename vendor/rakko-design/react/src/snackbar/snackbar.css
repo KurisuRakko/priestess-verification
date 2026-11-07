@@ -6,8 +6,9 @@
 
 .rk-snackbar-viewport {
   position: fixed;
-  left: 16px;
-  right: 16px;
+  /* 横屏时让开左右安全区（刘海 / 灵动岛那一侧），竖屏 env() 为 0 */
+  left: calc(16px + env(safe-area-inset-left));
+  right: calc(16px + env(safe-area-inset-right));
   bottom: calc(16px + var(--rk-snackbar-offset, 0px));
   z-index: var(--layer-toast);
   display: grid;
@@ -37,7 +38,7 @@
   pointer-events: auto;
 }
 
-/* 尺寸对齐 Material Design 2 snackbar：单行 48px 高、4px 圆角，宽度随内容在 344–672px 之间，
+/* 尺寸对齐 Material Design 2 snackbar：单行 48px 高（圆角按浮层档 12px，不沿用 MD2 的 4px），宽度随内容在 344–672px 之间，
    窄屏（≤ 480px）铺满视口宽度。左右留白由文案（左 16px / 右 8px）与 root 右内边距（8px）承担，
    动作按钮距右缘 8px。 */
 .rk-snackbar {
@@ -48,14 +49,14 @@
   max-width: min(672px, 100%);
   min-height: 48px;
   padding: 0 8px 0 0;
-  border-radius: 4px;
+  border-radius: var(--radius-surface);
   opacity: 1;
   transition:
     opacity var(--motion-duration-enter) var(--motion-ease-standard),
     translate var(--motion-spring-smooth-duration) var(--motion-spring-smooth);
 }
 
-/* 从下方 24px smooth 弹簧升起 + 淡入；退场 snappy 弹簧沉下 + 淡出，退场中不接点击。
+/* 从下方 24px smooth 弹簧升起 + 淡入；退场沉下 + 淡出，退场中不接点击。
    移植自 RakkoNotes motion-overrides.css。 */
 .rk-snackbar[data-starting-style],
 .rk-snackbar[data-ending-style] {
@@ -63,17 +64,37 @@
   translate: 0 24px;
 }
 
+/* 退场的位移与淡出同时长同曲线、一起收尾：Base UI 等最长的那条 transition 跑完才卸载，
+   位移若还走 snappy 弹簧（约 475ms），淡出 180ms 后看不见了还要再拖约 0.3s。 */
 .rk-snackbar[data-ending-style] {
   pointer-events: none;
   transition:
     opacity var(--motion-duration-exit) var(--motion-ease-standard),
-    translate var(--motion-spring-snappy-duration) var(--motion-spring-snappy);
+    translate var(--motion-duration-exit) var(--motion-ease-standard);
 }
 
-/* limit 超出的旧实例由 Base UI 标记 data-limited 而非移除：隐藏并停止交互。 */
+/* limit 超出的旧实例由 Base UI 标记 data-limited 而非移除：和关闭一样沉下淡出，并停止交互。
+   新实例顶掉旧实例时走的就是这条，不是 data-ending-style。 */
 .rk-snackbar[data-limited] {
   opacity: 0;
+  translate: 0 24px;
   pointer-events: none;
+  transition:
+    opacity var(--motion-duration-exit) var(--motion-ease-standard),
+    translate var(--motion-duration-exit) var(--motion-ease-standard);
+}
+
+/* 连弹：旧实例（关闭中或被 limit 顶掉）在原格子里淡出时，新实例等它淡出过六成再进场，
+   免得两条半透明的字叠在一起（同 SwapText 的 SWAP_ENTER_AT = 0.6）。淡入改用减速曲线
+   （--motion-ease-decelerate），晚起步也一下就看得见。只在有旧实例退场时生效，单独弹出不变慢。
+   延迟只在过渡起跑那一刻读取：旧实例卸载后规则不再命中，也不影响已在跑的进场；
+   新实例之后自己退场或被顶掉时由上面两条接管（:not 排除），退场不带延迟。 */
+.rk-snackbar-viewport:has(.rk-snackbar:is([data-ending-style], [data-limited]))
+  .rk-snackbar:not([data-ending-style], [data-limited]) {
+  transition:
+    opacity var(--motion-duration-enter) var(--motion-ease-decelerate),
+    translate var(--motion-spring-smooth-duration) var(--motion-spring-smooth);
+  transition-delay: calc(var(--motion-duration-exit) * 0.6);
 }
 
 @media (max-width: 480px) {
@@ -102,7 +123,7 @@
   height: 36px;
   padding: 0 8px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--color-accent);
   font: inherit;
@@ -112,11 +133,14 @@
   cursor: pointer;
 }
 
-/* 减少动态效果：只留短淡入淡出，位置直接到位。 */
+/* 减少动态效果：只留短淡入淡出，位置直接到位，连弹也不错开。 */
 @media (prefers-reduced-motion: reduce) {
   .rk-snackbar,
   .rk-snackbar[data-starting-style],
-  .rk-snackbar[data-ending-style] {
+  .rk-snackbar[data-ending-style],
+  .rk-snackbar[data-limited],
+  .rk-snackbar-viewport:has(.rk-snackbar:is([data-ending-style], [data-limited]))
+    .rk-snackbar:not([data-ending-style], [data-limited]) {
     translate: none;
     transition: opacity var(--motion-duration-state) var(--motion-ease-standard);
   }

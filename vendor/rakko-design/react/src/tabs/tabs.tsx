@@ -1,5 +1,5 @@
 import { Tabs as BaseTabs } from '@base-ui/react/tabs'
-import type { ComponentProps } from 'react'
+import type { ComponentProps, CSSProperties } from 'react'
 import { cx } from '../cx.js'
 
 export interface TabsListProps
@@ -41,11 +41,33 @@ export interface TabsIndicatorProps
   className?: string
 }
 
-function TabsIndicator({ className, ...props }: TabsIndicatorProps) {
+/**
+ * 指示条画在固定的基准尺寸上（CSS 里横向 100px 宽 / 竖向 100px 高），用 scale 缩放到当前 tab 的尺寸，
+ * 这样切换时只过渡 translate / scale（合成层），不动 width / height。Base UI 只给带 px 的长度变量，
+ * CSS 里没法除出无单位的比例，所以这里按测得的尺寸算好写成 --rk-tabs-indicator-scale-x / -y。
+ */
+const TABS_INDICATOR_BASE_PX = 100
+
+function indicatorScale(
+  state: BaseTabs.Indicator.State,
+): CSSProperties | undefined {
+  const size = state.activeTabSize
+  if (size === null) return undefined
+  return {
+    '--rk-tabs-indicator-scale-x': size.width / TABS_INDICATOR_BASE_PX,
+    '--rk-tabs-indicator-scale-y': size.height / TABS_INDICATOR_BASE_PX,
+  } as CSSProperties
+}
+
+function TabsIndicator({ className, style, ...props }: TabsIndicatorProps) {
   return (
     <BaseTabs.Indicator
       {...props}
       className={cx('rk-tabs__indicator', className)}
+      style={(state) => ({
+        ...indicatorScale(state),
+        ...(typeof style === 'function' ? style(state) : style),
+      })}
     />
   )
 }

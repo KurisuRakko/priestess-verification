@@ -11,7 +11,8 @@
   font-size: 14px;
   font-weight: 500;
   padding: 8px 12px;
-  border-radius: 12px;
+  /* 可点击控件 = 控件档方圆角（--radius-control，6px），各 variant、各尺寸一致 */
+  border-radius: var(--radius-control);
   border: 1px solid transparent;
   transition:
     background-color var(--motion-duration-state) var(--motion-ease-standard),
@@ -22,6 +23,49 @@
 
 .rk-button:not(:disabled):active {
   transform: translateY(1px);
+}
+
+/* 实心主按钮：强调色底 + 纸色文字。hover / active 用 neutral-10 与强调色混合——浅色主题里
+   neutral-10 是深墨，实心底压暗；深色主题里它翻成近白，实心底提亮。禁用时只靠 state-layer 的
+   0.45 透明度，hover / active 规则沿用 :not(:disabled) 守卫。主按钮的焦点环改走中性色，避免
+   强调色焦点环落在同色实心底上几乎看不见。 */
+.rk-button--filled {
+  background: var(--color-accent);
+  color: var(--color-paper);
+  border-color: transparent;
+}
+
+.rk-button--filled:not(:disabled):hover {
+  background: color-mix(in srgb, var(--color-accent) 88%, var(--color-neutral-10));
+}
+
+.rk-button--filled:not(:disabled):active {
+  background: color-mix(in srgb, var(--color-accent) 76%, var(--color-neutral-10));
+}
+
+.rk-button--filled:focus-visible {
+  outline-color: color-mix(in srgb, var(--color-neutral-10) 60%, transparent);
+}
+
+/* 实心危险按钮：filled 的配方落在 error 上（实心红底 + 纸色文字），用于确认框里不可撤销的确认动作。
+   hover / active 同样与 neutral-10 混合；禁用沿用 state-layer 的 0.45 透明度（实心红底变成淡粉底，
+   与可用态明显可辨），hover / active 带 :not(:disabled) 守卫；焦点环同 filled 走中性色，不落在红底上。 */
+.rk-button--filled-danger {
+  background: var(--color-error);
+  color: var(--color-paper);
+  border-color: transparent;
+}
+
+.rk-button--filled-danger:not(:disabled):hover {
+  background: color-mix(in srgb, var(--color-error) 88%, var(--color-neutral-10));
+}
+
+.rk-button--filled-danger:not(:disabled):active {
+  background: color-mix(in srgb, var(--color-error) 76%, var(--color-neutral-10));
+}
+
+.rk-button--filled-danger:focus-visible {
+  outline-color: color-mix(in srgb, var(--color-neutral-10) 60%, transparent);
 }
 
 /* 禁用时不得出现 hover / active 视觉变化：悬停与按下规则都加 :not(:disabled) 守卫。 */
@@ -69,7 +113,7 @@
   border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
 }
 
-/* Icon Button：移植 .icon-btn（rounded-lg、方形、克制）。 */
+/* Icon Button：移植 .icon-btn（方形、克制）；圆角走控件档（6px），与 Button 一致；plain 的圆形图标按钮见下方 --plain。 */
 .rk-icon-button {
   display: inline-flex;
   align-items: center;
@@ -77,7 +121,7 @@
   cursor: pointer;
   user-select: none;
   padding: 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-neutral-9);
@@ -156,7 +200,8 @@
   min-height: 44px;
   padding: 10px;
   border: 0;
-  border-radius: 22px;
+  /* plain 是 44px 的圆形点按区，属定高圆形件：保持胶囊，不随控件档变化 */
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--color-accent);
   -webkit-tap-highlight-color: transparent;
@@ -188,8 +233,9 @@
   color: var(--color-accent);
 }
 
-.rk-button--plain:disabled,
-.rk-icon-button--plain:disabled {
+/* 禁用：中性色文字，透明度 0.45 来自 [data-ripple]:disabled（state-layer.css）；光标保持 default（叠类压过它的 not-allowed） */
+.rk-button.rk-button--plain:disabled,
+.rk-icon-button.rk-icon-button--plain:disabled {
   color: var(--color-neutral-5);
   cursor: default;
 }
@@ -210,13 +256,6 @@
 .rk-button--plain.rk-button--plain:not(:disabled):active,
 .rk-icon-button--plain.rk-icon-button--plain:not(:disabled):active {
   scale: 0.92;
-}
-
-/* 没有 data-ripple 就没有状态层的焦点环，这里补上同一种 */
-.rk-button--plain:focus-visible,
-.rk-icon-button--plain:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
-  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

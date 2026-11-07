@@ -6,6 +6,8 @@ export const MOTION = {
   durationExitMs: 180,
   /** --motion-ease-standard：透明度 / 颜色这类非空间属性的曲线，WAAPI 动画直接用。 */
   easeStandard: 'cubic-bezier(0.4, 0, 0.2, 1)',
+  /** --motion-ease-decelerate：进场淡入的减速曲线（换值、切页、弹层进场），一起步就看得见。 */
+  easeDecelerate: 'cubic-bezier(0, 0, 0.2, 1)',
   /** --motion-ease-pop：带过冲的到位曲线（Switch 拇指），配弹簧时长用。 */
   easePop: 'cubic-bezier(0.34, 2.1, 0.5, 1)',
 } as const

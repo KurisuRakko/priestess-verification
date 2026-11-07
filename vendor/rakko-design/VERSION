@@ -1,5 +1,5 @@
-commit=b6358cfa7a727fe10bcaf86a831595bfba29577d
-synced=2026-10-26T01:34:46+11:00
+commit=0fdce3246f8f30343bb09392341eb2cf51535eda
+synced=2026-11-07T18:00:24+11:00
 source=https://github.com/KurisuRakko/Rakko-Design
 resolved_from=git rev-parse HEAD
-ref=local:main
+ref=local:HEAD

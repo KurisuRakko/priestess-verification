@@ -5,9 +5,12 @@
 @import '../../design-system/src/glass.css';
 /* context-action 运行时的配套样式（压掉长按的 callout / 选区）：useContextAction 用到，随包带上 */
 @import '../../design-system/src/context-action.css';
+/* 全局滚动条（细滑块、透明轨道，颜色来自 --scrollbar-thumb-*）：引入 @rakko/react 样式的项目自动生效 */
+@import '../../design-system/src/scrollbar.css';
 @import './button/button.css';
 @import './tooltip/tooltip.css';
 @import './switch/switch.css';
+@import './slider/slider.css';
 @import './tabs/tabs.css';
 /* BottomNav 是 Tabs 的底栏容器扩展，紧跟依赖源；它的覆盖规则已用
    .rk-bottom-nav 祖先前缀自锁，不依赖这里的拼接顺序。 */
@@ -18,11 +21,13 @@
 @import './dialog/dialog.css';
 @import './menu/menu.css';
 @import './filter-chip/filter-chip.css';
+@import './badge/badge.css';
 @import './segmented-choice/segmented-choice.css';
 @import './checkbox/checkbox.css';
 @import './select/select.css';
 @import './popover/popover.css';
 @import './progress/progress.css';
+@import './progress-ring/progress-ring.css';
 @import './snackbar/snackbar.css';
 @import './field/field.css';
 @import './copy-button/copy-button.css';
@@ -45,7 +50,13 @@
 @import './navigation-stack/navigation-stack.css';
 /* AnimatedList 只有容器布局两条；LiftMenu 叠在 menu.css 之上，选择器已带 .rk-menu 前缀自锁 */
 @import './animated-list/animated-list.css';
+/* 可排序分组列表叠在 list.css 之上（折叠原行的选择器带 .rk-list-row 前缀自锁）；取色器复用 tabs / field 的类 */
+@import './sortable-list/sortable-list.css';
+@import './color-picker/color-picker.css';
 @import './lift-menu/lift-menu.css';
 /* 换值不硬切（SwapText 的 crossfade 与交接拷贝）、列表空状态 */
 @import './swap-text/swap-text.css';
 @import './empty-state/empty-state.css';
+@import './collapsible/collapsible.css';
+/* 页面级滚动条：fixed 贴视口右缘，层级 --layer-chrome */
+@import './page-scrollbar/page-scrollbar.css';

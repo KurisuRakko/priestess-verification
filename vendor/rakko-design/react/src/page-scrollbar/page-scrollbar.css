@@ -1,0 +1,114 @@
+/* rk-page-scrollbar：页面级自定义滚动条。挂载期间 <html> 带 data-rk-page-scrollbar，
+   原生页面滚动条整条隐藏（html 滚动与 body 自己滚动两种情况都盖住），改由视口右缘一条
+   fixed 轨道里的胶囊拇指表达位置。拇指色是 neutral-10 的低 alpha：深色主题下 neutral-10
+   本身反转成浅色，同一条规则两种主题都成立，不另写 [data-theme='dark']。 */
+
+html[data-rk-page-scrollbar],
+html[data-rk-page-scrollbar] body {
+  scrollbar-width: none;
+}
+
+html[data-rk-page-scrollbar]::-webkit-scrollbar,
+html[data-rk-page-scrollbar] body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* 拖拇指期间整页不选中文字。 */
+html[data-rk-page-scrollbar='dragging'] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 轨道：14px 宽的命中区，贴视口右缘，上下各让出 inset + 4px。 */
+.rk-page-scrollbar {
+  position: fixed;
+  top: calc(var(--rk-page-scrollbar-inset-top, 0px) + 4px);
+  bottom: calc(var(--rk-page-scrollbar-inset-bottom, 0px) + 4px);
+  right: 0;
+  z-index: var(--layer-chrome);
+  box-sizing: border-box;
+  width: 14px;
+  border-radius: var(--radius-pill);
+  background-color: transparent;
+  transition: background-color var(--motion-duration-state) var(--motion-ease-standard);
+}
+
+/* 内容不够一屏：不显示也不挡点击，但保留布局，轨道长度照样可量。 */
+.rk-page-scrollbar:not([data-scrollable]) {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* 拇指：静止 6px 宽、居中；位置与长度由脚本写 transform / height。 */
+.rk-page-scrollbar__thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 6px;
+  height: 0;
+  margin-inline: auto;
+  border-radius: var(--radius-pill);
+  background-color: color-mix(in srgb, var(--color-neutral-10) 28%, transparent);
+  opacity: 0;
+  touch-action: none;
+  will-change: transform;
+  transition:
+    opacity var(--motion-duration-state) var(--motion-ease-standard),
+    width var(--motion-duration-state) var(--motion-ease-standard),
+    background-color var(--motion-duration-state) var(--motion-ease-standard);
+}
+
+.rk-page-scrollbar[data-active] > .rk-page-scrollbar__thumb,
+.rk-page-scrollbar[data-dragging] > .rk-page-scrollbar__thumb {
+  opacity: 1;
+}
+
+/* 精确指针：悬停轨道显示淡底并加宽拇指，拖动中同样加宽。 */
+@media (hover: hover) and (pointer: fine) {
+  .rk-page-scrollbar:hover {
+    background-color: color-mix(in srgb, var(--color-neutral-10) 6%, transparent);
+  }
+
+  .rk-page-scrollbar:hover > .rk-page-scrollbar__thumb {
+    opacity: 1;
+    width: 10px;
+    background-color: color-mix(in srgb, var(--color-neutral-10) 40%, transparent);
+  }
+}
+
+@media (pointer: fine) {
+  .rk-page-scrollbar[data-dragging] {
+    background-color: color-mix(in srgb, var(--color-neutral-10) 6%, transparent);
+  }
+
+  .rk-page-scrollbar[data-dragging] > .rk-page-scrollbar__thumb {
+    width: 10px;
+    background-color: color-mix(in srgb, var(--color-neutral-10) 40%, transparent);
+  }
+}
+
+/* 触屏：轨道不接点击（右缘照常拖页面），拇指只在滚动时出现、可拖、不加宽。 */
+@media (pointer: coarse) {
+  .rk-page-scrollbar {
+    pointer-events: none;
+  }
+
+  .rk-page-scrollbar[data-active] > .rk-page-scrollbar__thumb,
+  .rk-page-scrollbar[data-dragging] > .rk-page-scrollbar__thumb {
+    pointer-events: auto;
+  }
+
+  .rk-page-scrollbar[data-dragging] > .rk-page-scrollbar__thumb {
+    background-color: color-mix(in srgb, var(--color-neutral-10) 40%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rk-page-scrollbar,
+  .rk-page-scrollbar__thumb {
+    transition: none;
+  }
+}

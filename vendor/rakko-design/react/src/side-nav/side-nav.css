@@ -7,7 +7,8 @@
    Root 是 position: sticky 的列，布局前提（页面走根滚动、祖先不能是 overflow
    滚动容器、top 与顶栏真实高度一致、两栏那一层要 display: flex、直接父级要比
    nav 高）写在 react/README.md 的 SideNav 一节——改这里的定位前先读那四条。
-   只过渡 width / padding / 指示条，reduced-motion 全部关掉。
+   收起 / 展开：只过渡侧栏 width、label 透明度和指示条；图标在两态下 x 不变（见 item 的左内边距），
+   label 留在流里随 item 一起被裁、同时淡出 / 淡入。reduced-motion 全部关掉。
    下面的覆盖规则都带 .rk-side-nav 前缀：.rk-tabs / .rk-tab / .rk-tabs__indicator
    是同优先级的单类选择器，加一层祖先锁定覆盖关系，不依赖 styles.css 的拼接顺序。 */
 
@@ -19,10 +20,16 @@
   width: var(--rk-side-nav-width, 220px);
   height: calc(100dvh - var(--rk-side-nav-top, 56px));
   overflow: hidden auto;
-  padding: 12px 8px;
+  padding: 12px var(--rk-side-nav-inset);
   background: var(--color-paper);
   border-right: 1px solid var(--color-border);
   transition: width var(--motion-duration-enter) var(--motion-ease-standard);
+  /* 侧栏左右内边距与图标尺寸：item 的左内边距按这两个值把图标放在窄栏中线上 */
+  --rk-side-nav-inset: 8px;
+  --rk-side-nav-icon: 20px;
+  /* 同心：侧栏本身没有圆角，给导航项一个行高亮的默认值 --radius-row（外圆角 8 − 内缩 0） */
+  --rk-radius-outer: var(--radius-row);
+  --rk-radius-inset: 0px;
 }
 
 .rk-side-nav[data-collapsed] {
@@ -45,17 +52,20 @@
   align-items: center;
   justify-content: flex-start;
   gap: 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  /* 左内边距两态一样，取「图标在窄栏里居中」的值：收起 / 展开时图标原地不动，只有右边的文字被裁掉。
+     旧做法是折叠态 justify-content: center + padding 归零，center 一换图标就先跳到宽行中央再滑回来。 */
+  padding: 10px 12px 10px
+    max(0px, calc((var(--rk-side-nav-width-collapsed, 64px) - 2 * var(--rk-side-nav-inset) - var(--rk-side-nav-icon)) / 2));
+  overflow: hidden;
+  white-space: nowrap;
+  /* 导航项是列表行：选中 / 悬停高亮按同心公式推导，侧栏给的默认值是 --radius-row（8px） */
+  border-radius: max(var(--rk-radius-outer, var(--radius-container)) - var(--rk-radius-inset, 0px), var(--radius-2));
   font-size: 14px;
   font-weight: 500;
   text-align: left;
   color: var(--color-neutral-7);
-  /* padding 一起过渡：折叠时 item 内边距归零，只动宽度会让图标先跳到行中央
-     再滑回中线；hover / pressed 仍由 state-layer.css 的 data-ripple 承担。 */
-  transition:
-    color var(--motion-duration-state) var(--motion-ease-standard),
-    padding var(--motion-duration-enter) var(--motion-ease-standard);
+  /* hover / pressed 由 state-layer.css 的 data-ripple 承担 */
+  transition: color var(--motion-duration-state) var(--motion-ease-standard);
 }
 
 /* accent 只出现在选中态的图文与左侧指示条上 */
@@ -67,8 +77,8 @@
 .rk-side-nav__icon {
   display: block;
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: var(--rk-side-nav-icon);
+  height: var(--rk-side-nav-icon);
   line-height: 0;
 }
 
@@ -78,40 +88,39 @@
   height: 100%;
 }
 
-/* 折叠态：只剩图标的窄栏，图标居中；label 视觉隐藏但留在 DOM 里，
-   可访问名称不丢（悬停提示由 Item 的 title 属性提供）。 */
-.rk-side-nav[data-collapsed] .rk-side-nav__item {
-  justify-content: center;
-  padding: 10px 0;
+/* label 留在流里：收起时被 item 的 overflow 从右往左裁掉，同时快速淡出（退场时长，比宽度先走完，
+   不会剩半截字）；展开时晚一点、用减速曲线淡入，字跟着变宽的栏一路露出来。
+   折叠态只是看不见，仍在 DOM 与无障碍树里，可访问名称不丢（悬停提示由 Item 的 title 属性提供）。 */
+.rk-side-nav__label {
+  min-width: 0;
+  overflow: hidden;
+  transition: opacity var(--motion-duration-enter) var(--motion-ease-decelerate)
+    calc(var(--motion-duration-enter) * 0.25);
 }
 
 .rk-side-nav[data-collapsed] .rk-side-nav__label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
+  opacity: 0;
+  transition: opacity var(--motion-duration-exit) var(--motion-ease-standard);
 }
 
 /* 指示条移到左边：宽 2px、竖向滑动（rk-tabs__indicator 默认在底边横滑）。
-   竖向 tablist 下 Base UI 仍写同一组变量，--active-tab-top / -height 就是
-   当前 tab 相对 tablist 的顶边与高度。 */
+   竖向 tablist 下 Base UI 仍写同一组变量，--active-tab-top 是当前 tab 相对
+   tablist 的顶边；高度同 rk-tabs__indicator 的做法：画在 100px 高的基准条上，
+   按 --rk-tabs-indicator-scale-y（tabs.tsx 算好）纵向缩放，只过渡 translate / scale。 */
 .rk-side-nav .rk-side-nav__indicator {
   left: 0;
   top: 0;
   bottom: auto;
   width: 2px;
-  height: var(--active-tab-height);
+  height: 100px;
   translate: 0 var(--active-tab-top);
-  border-radius: 1px;
+  scale: 1 var(--rk-tabs-indicator-scale-y, 1);
+  /* 纵向缩放时垂直半径反除回去，静止时上下两端仍是 1px 的半圆 */
+  border-radius: 1px / calc(1px / var(--rk-tabs-indicator-scale-y, 1));
   background: var(--color-accent);
-  transition-property: translate, height;
-  transition-duration: var(--motion-duration-enter);
-  transition-timing-function: var(--motion-ease-standard);
+  transition-property: translate, scale;
+  transition-duration: var(--motion-spring-snappy-duration);
+  transition-timing-function: var(--motion-spring-snappy);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -121,6 +130,11 @@
 
   .rk-side-nav .rk-side-nav__item {
     transition-duration: 1ms;
+  }
+
+  .rk-side-nav__label,
+  .rk-side-nav[data-collapsed] .rk-side-nav__label {
+    transition: none;
   }
 
   .rk-side-nav .rk-side-nav__indicator {

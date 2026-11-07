@@ -8,7 +8,8 @@
   align-items: center;
   justify-content: center;
   border: 1px solid var(--color-neutral-5);
-  border-radius: 4px;
+  /* 例外：方框是复选框与单选圆点的区别，比控件档（6px）略方，保持 4px */
+  border-radius: var(--radius-4);
   background: var(--color-paper);
   color: #fff;
   cursor: pointer;

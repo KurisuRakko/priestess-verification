@@ -1,4 +1,4 @@
-/* rk-list：iOS inset grouped 列表。组标题小号次要色在卡片外上方，卡片圆角 12px，
+/* rk-list：iOS inset grouped 列表。组标题小号次要色在卡片外上方，卡片走内容容器档 8px，
    分隔线从文字左缘画到行尾，卡片里最后一行不画。SwipeRow 包着的行也由本文件画分隔线。 */
 
 /* 卡片底色 = neutral-2（tokens.md 的 Card surface）；定义在组上，调用方可在组或更外层覆盖。
@@ -22,7 +22,10 @@
 
 .rk-list-group__card {
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--radius-container);
+  /* 同心：行贴边（内缩 0），行内需要圆角的元素（长按缩小的行等）按 max(12 − 0, 4) = 12 推导 */
+  --rk-radius-outer: var(--radius-container);
+  --rk-radius-inset: 0px;
   background: var(--rk-list-bg);
 }
 
@@ -57,6 +60,7 @@
   width: 100%;
   margin: 0;
   border: 0;
+  /* 行贴着卡片四边：按压高亮由卡片的 overflow: hidden 裁出外圈圆角，内缩为 0 时这正是同心结果；中间的行保持直角 */
   border-radius: 0;
   background: transparent;
   color: inherit;

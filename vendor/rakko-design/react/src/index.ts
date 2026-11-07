@@ -13,6 +13,8 @@ export type {
 } from './tooltip/tooltip.js'
 export { Switch } from './switch/switch.js'
 export type { SwitchRootProps, SwitchThumbProps } from './switch/switch.js'
+export { Slider } from './slider/slider.js'
+export type { SliderProps } from './slider/slider.js'
 export { Tabs } from './tabs/tabs.js'
 export type {
   TabsIndicatorProps,
@@ -41,6 +43,8 @@ export { ContextMenu } from './context-menu/context-menu.js'
 export type { ContextMenuPopupProps } from './context-menu/context-menu.js'
 export { FilterChip } from './filter-chip/filter-chip.js'
 export type { FilterChipProps } from './filter-chip/filter-chip.js'
+export { Badge } from './badge/badge.js'
+export type { BadgeProps, BadgeSize, BadgeTone } from './badge/badge.js'
 export { SegmentedChoice } from './segmented-choice/segmented-choice.js'
 export type {
   SegmentedChoiceItemProps,
@@ -78,6 +82,8 @@ export type {
   ProgressTrackProps,
   ProgressValueProps,
 } from './progress/progress.js'
+export { ProgressRing } from './progress-ring/progress-ring.js'
+export type { ProgressRingProps } from './progress-ring/progress-ring.js'
 export { Snackbar, useSnackbar } from './snackbar/snackbar.js'
 export type {
   SnackbarActionProps,
@@ -196,14 +202,41 @@ export { useSlotCrossfade } from './slot-crossfade/slot-crossfade.js'
 export { AnimatedList } from './animated-list/animated-list.js'
 export type { AnimatedListProps } from './animated-list/animated-list.js'
 export { flipLayoutKey } from './animated-list/flip-layout.js'
+// FLIP 的 WAAPI 动画 id：消费方自己的行组件（同 SwipeRow）开始收拢时要停掉 AnimatedList 的出现动画，不必写死字符串
+export { FLIP_APPEAR_ID, FLIP_FADE_ID, FLIP_MOVE_ID, cancelFlipAppear } from './animated-list/flip-ids.js'
 export type { FlipLayoutGroup } from './animated-list/flip-layout.js'
+export { SortableList, SORTABLE_LIST_LABELS } from './sortable-list/sortable-list.js'
+export type {
+  SortableListGroup,
+  SortableListLabels,
+  SortableListProps,
+  SortableMove,
+  SortableTransferTone,
+} from './sortable-list/sortable-list.js'
+export { ColorPicker, COLOR_PICKER_LABELS } from './color-picker/color-picker.js'
+export type { ColorPickerLabels, ColorPickerProps, ColorPickerTab } from './color-picker/color-picker.js'
+export {
+  COLOR_PICKER_COLUMNS,
+  COLOR_PICKER_PALETTE,
+  hexToHsv,
+  hsvToHex,
+  normalizeHex,
+} from './color-picker/color.js'
+export type { Hsv } from './color-picker/color.js'
 export { LiftMenu, useContextAction } from './lift-menu/lift-menu.js'
+// 全屏浮层 / 拖柄挡住底层滚动与捏合，代替 touch-action: none（WebKit 卸载后残留会锁死平移）
+export { blockTouchScroll } from './touch-block.js'
 export type {
   LiftMenuAnchor,
+  LiftMenuHandle,
   LiftMenuItemProps,
   LiftMenuProps,
+  LiftMenuSubmenuPopupProps,
+  LiftMenuSubmenuTriggerProps,
   LiftVariant,
 } from './lift-menu/lift-menu.js'
+export { PageScrollbar } from './page-scrollbar/page-scrollbar.js'
+export type { PageScrollbarProps } from './page-scrollbar/page-scrollbar.js'
 export { useRippleFeedback } from './use-ripple-feedback.js'
 export {
   MOTION,
@@ -235,6 +268,7 @@ export {
   prefersReducedMotion,
   projectMomentum,
   rubberBand,
+  pageSpringEasing,
   springCurve,
   springEasing,
 } from './spring.js'
@@ -250,6 +284,12 @@ export { RemovalCountContext, useRemoval, useRemovalCount } from './swap-text/us
 export type { Removal } from './swap-text/use-removal.js'
 export { EmptyState } from './empty-state/empty-state.js'
 export type { EmptyStateProps } from './empty-state/empty-state.js'
+export { Collapsible } from './collapsible/collapsible.js'
+export type {
+  CollapsibleContentProps,
+  CollapsibleRootProps,
+  CollapsibleTriggerProps,
+} from './collapsible/collapsible.js'
 export { SELECTION_SLIDE_SELECTOR, useSelectionSlide } from './selection-slide/selection-slide.js'
 export type { SelectionSlideOptions } from './selection-slide/selection-slide.js'
 export { SMOOTH_SCROLL_SPRING, smoothScrollTo } from './smooth-scroll/smooth-scroll.js'

@@ -16,7 +16,8 @@
   min-width: 0;
   height: 36px;
   padding: 0 8px;
-  border-radius: 12px;
+  /* 输入框是内容容器档 8px */
+  border-radius: var(--radius-container);
   background: color-mix(in srgb, var(--color-neutral-6) 14%, transparent);
   color: var(--color-neutral-6);
   cursor: text;
@@ -66,7 +67,7 @@
   margin-right: -4px;
   padding: 0;
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--color-neutral-5);
   cursor: pointer;
@@ -118,7 +119,7 @@
 .rk-search-field__cancel:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
   outline-offset: -2px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 
 @media (prefers-reduced-motion: reduce) {

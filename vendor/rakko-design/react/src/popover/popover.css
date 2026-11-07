@@ -8,13 +8,24 @@
 
 .rk-popover {
   box-sizing: border-box;
-  max-width: 320px;
+  /* 默认给 360px：ColorPicker 的 260px 下限 + 28px 内边距 + 边框仍放得下，不会被截。
+     视口更窄时自动收。 */
+  max-width: min(360px, calc(100vw - 16px));
   padding: 12px 14px;
-  border-radius: 12px;
+  /* 浮层档 12px；内容按同心推导：内缩取较小的纵向内边距 12px + data-glass="panel" 的 1px 边 */
+  border-radius: var(--radius-surface);
+  --rk-radius-outer: var(--radius-surface);
+  --rk-radius-inset: calc(12px + 1px);
   opacity: 1;
   transition:
     opacity var(--motion-duration-enter) var(--motion-ease-standard),
     translate var(--motion-duration-enter) var(--motion-ease-standard);
+}
+
+/* 宽度跟随内容：面板按 max-content 展开，只受视口约束（长表格 / 取色器不被默认上限截断）。 */
+.rk-popover[data-width='content'] {
+  width: max-content;
+  max-width: calc(100vw - 16px);
 }
 
 .rk-popover[data-starting-style],

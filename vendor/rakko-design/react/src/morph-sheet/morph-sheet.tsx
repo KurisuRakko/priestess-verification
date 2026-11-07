@@ -31,7 +31,8 @@ interface Inset {
 /** sheet 顶边离视口顶部的距离：露出一条退后的页面，抓手才有意义。与 CSS 同步。 */
 const SHEET_TOP = 44
 const SHEET_MAX_WIDTH = 720
-const SHEET_RADIUS = 22
+/** Sheet 档 --radius-sheet（16px）：裁剪框圆角只能写数值，与 tokens.css 同步 */
+const SHEET_RADIUS = 16
 /** 关闭比打开稍快一点 */
 const CLOSE_SPRING: SpringSpec = { response: 0.7, damping: 1 }
 const RECEDE_SCALE = 0.92
@@ -187,7 +188,7 @@ export function MorphSheet({
         const r = card.getBoundingClientRect()
         from.current = {
           inset: { top: r.top - box.top, left: r.left - box.left, right: box.right - r.right, bottom: box.bottom - r.bottom },
-          radius: Number.parseFloat(getComputedStyle(card).borderTopLeftRadius) || 8,
+          radius: Number.parseFloat(getComputedStyle(card).borderTopLeftRadius) || 8, // 卡片没有圆角时按内容容器档 8px
         }
       }
       const target = clip(sheetInset(box.width), SHEET_RADIUS)

@@ -1,0 +1,206 @@
+/* rk-sortable-list：可拖拽排序的分组列表。卡片与分隔线沿用 list.css；这里只有行首 − / +、行尾拖柄、
+   拖动中的折叠原行 / 空位，以及挂在 body 上的浮起物（克隆 + 阴影）。行为全在 sortable-list.tsx。 */
+
+.rk-sortable-list {
+  position: relative;
+}
+
+/* 拖动中整块不选字，光标保持抓取 */
+.rk-sortable-list[data-dragging] {
+  cursor: grabbing;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 行的 offsetTop 以卡片为参照（落点按布局中线算，不受让位动画影响） */
+.rk-sortable-list .rk-list-group__card {
+  position: relative;
+}
+
+/* 分隔线从文字左缘开始：左内边距 + − / + 按钮位（24）+ 间距，有图标再加一格 */
+.rk-sortable-list__row[data-transfer] {
+  --rk-list-separator-inset: calc(16px + 24px + 12px);
+}
+
+.rk-sortable-list__row[data-transfer][data-leading] {
+  --rk-list-separator-inset: calc(16px + 24px + 12px + var(--rk-list-leading-size, 24px) + 12px);
+}
+
+/* 被拖的原行：留在 DOM 里（拖柄的触摸序列与焦点不断），折成 0 高；落点由空位占着 */
+.rk-list-row.rk-sortable-list__row[data-dragging] {
+  height: 0;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+/* 折起的原行是卡片最后一个子元素时，它上面那行就成了视觉上的最后一行：不画分隔线 */
+.rk-list-group__card > .rk-list-row:has(+ .rk-sortable-list__row[data-dragging]:last-child)::after {
+  display: none;
+}
+
+/* 等浮起物落定的行：内容隐身、占位不变（飞行的克隆盖在这里） */
+.rk-sortable-list__row[data-landing] > * {
+  opacity: 0;
+}
+
+.rk-list-row.rk-sortable-list__placeholder {
+  min-height: 0;
+  padding: 0;
+}
+
+/* ------------------------------------------------------------------ 行首 − / + */
+
+.rk-sortable-list__transfer {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0 1px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-error);
+  color: white;
+  cursor: pointer;
+  transition: scale var(--motion-spring-snappy-duration) var(--motion-spring-snappy);
+}
+
+.rk-sortable-list__transfer[data-tone='add'] {
+  background: var(--color-success);
+}
+
+/* 触控热区放大到 44px，视觉仍是 22px 的圆点 */
+.rk-sortable-list__transfer::before {
+  content: '';
+  position: absolute;
+  inset: -11px;
+}
+
+.rk-sortable-list__transfer:active {
+  scale: 0.88;
+}
+
+/* ------------------------------------------------------------------ 拖柄 */
+
+.rk-sortable-list__handle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: -11px -12px -11px 0;
+  padding: 0;
+  border: 0;
+  /* 方形把手是图标按钮：控件档（6px），与 IconButton 一致 */
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-neutral-6);
+  cursor: grab;
+  /* 拦页面滚动交给 blockTouchScroll（JS）；这里只去掉双击缩放的等待与长按 callout */
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: color var(--motion-duration-state) var(--motion-ease-standard);
+}
+
+.rk-sortable-list__handle:focus-visible {
+  outline-offset: -4px;
+}
+
+.rk-sortable-list__handle[aria-pressed='true'] {
+  color: var(--color-accent);
+  cursor: grabbing;
+}
+
+/* ------------------------------------------------------------------ 浮起物（挂在 body 上） */
+
+.rk-sortable-list__float {
+  --rk-sortable-shadow: 0 10px 30px rgb(0 0 0 / 18%), 0 2px 6px rgb(0 0 0 / 8%);
+  /* 浮起的行挂在 body 上、脱离了 List.Group：用同心推导的默认值 --radius-row */
+  --rk-sortable-radius: var(--radius-row);
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--layer-popup);
+  pointer-events: none;
+  will-change: transform;
+}
+
+[data-theme='dark'] .rk-sortable-list__float {
+  --rk-sortable-shadow: 0 10px 30px rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 30%);
+}
+
+/* 放大与圆角：拿起时弹到 1.03 + 圆角，放下时弹回（snappy 弹簧，中途改目标从当前值接着走） */
+.rk-sortable-list__lift {
+  position: relative;
+  height: 100%;
+  border-radius: 0;
+  transition:
+    scale var(--motion-spring-snappy-duration) var(--motion-spring-snappy),
+    border-radius var(--motion-spring-snappy-duration) var(--motion-spring-snappy);
+}
+
+.rk-sortable-list__float[data-lifted] .rk-sortable-list__lift {
+  scale: 1.03;
+  border-radius: var(--rk-sortable-radius);
+}
+
+.rk-sortable-list__float[data-flying] .rk-sortable-list__lift {
+  border-radius: var(--rk-sortable-radius);
+}
+
+/* 阴影是单独一层，只过渡 opacity（不动画 box-shadow） */
+.rk-sortable-list__shadow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: var(--rk-sortable-shadow);
+  opacity: 0;
+  transition: opacity var(--motion-spring-snappy-duration) var(--motion-ease-standard);
+}
+
+.rk-sortable-list__float[data-lifted] .rk-sortable-list__shadow {
+  opacity: 1;
+}
+
+/* 克隆铺满浮起物；第二份（飞行时的新样子）叠在上面做交叉淡化 */
+.rk-list-row.rk-sortable-list__clone {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  background: var(--rk-list-bg, var(--color-neutral-2));
+}
+
+.rk-sortable-list__clone[data-next] {
+  opacity: 0;
+}
+
+/* 读屏专用：拖柄的操作说明与 aria-live 播报 */
+.rk-sortable-list__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rk-sortable-list__lift,
+  .rk-sortable-list__transfer {
+    transition: none;
+  }
+
+  .rk-sortable-list__float[data-lifted] .rk-sortable-list__lift {
+    scale: none;
+  }
+}
