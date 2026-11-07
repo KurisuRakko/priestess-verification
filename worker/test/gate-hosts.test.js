@@ -6,6 +6,7 @@ import { createPassValue, passKey } from "../src/gate.js";
 import {
   forgetGateHosts,
   GATE_CACHE_TTL_MS,
+  GATE_RETRY_MS,
   gatePolicy,
   isExemptPath,
   loadAdminGateHosts,
@@ -163,6 +164,37 @@ describe("gate hosts: per-isolate cache", () => {
     forgetGateHosts();
     await loadAdminGateHosts(registryFn, now + GATE_CACHE_TTL_MS + 1);
     expect(calls.n).toBe(3);
+  });
+
+  it("keeps serving the last snapshot while the registry fails", async () => {
+    const { calls, registryFn } = fakeRegistry([row]);
+    const now = 2_000_000;
+    await loadAdminGateHosts(registryFn, now);
+    const failing = () => {
+      calls.n += 1;
+      return {
+        listGateHosts: async () => {
+          throw new Error("registry down");
+        },
+      };
+    };
+    const later = now + GATE_CACHE_TTL_MS;
+    expect((await loadAdminGateHosts(failing, later)).has("cached.example")).toBe(true);
+    expect(calls.n).toBe(2);
+    // Retried only after GATE_RETRY_MS, not on every request.
+    await loadAdminGateHosts(failing, later + GATE_RETRY_MS - 1);
+    expect(calls.n).toBe(2);
+    await loadAdminGateHosts(failing, later + GATE_RETRY_MS);
+    expect(calls.n).toBe(3);
+  });
+
+  it("fails when the registry is down and nothing was loaded yet", async () => {
+    const failing = () => ({
+      listGateHosts: async () => {
+        throw new Error("registry down");
+      },
+    });
+    await expect(loadAdminGateHosts(failing, 1)).rejects.toThrow("registry down");
   });
 
   it("shares one registry read between concurrent misses", async () => {

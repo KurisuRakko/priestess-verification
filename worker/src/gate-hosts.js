@@ -164,8 +164,13 @@ export function isExemptPath(exemptPaths, pathname) {
  * hosts costs no more registry reads than real traffic does. An admin change
  * reaches other isolates within `GATE_CACHE_TTL_MS`; the isolate that handled
  * it drops its snapshot at once (`forgetGateHosts`).
+ *
+ * When a refresh fails and an older snapshot exists, that snapshot keeps
+ * serving and the read is retried after `GATE_RETRY_MS`, so a registry
+ * outage does not turn every request on an admin-managed host into a 500.
  */
 export const GATE_CACHE_TTL_MS = 60_000;
+export const GATE_RETRY_MS = 5_000;
 let snapshot = null; // { at, hosts: Map }
 let pending = null;
 
@@ -183,7 +188,12 @@ export async function loadAdminGateHosts(registry, now = Date.now()) {
       .finally(() => {
         pending = null;
       });
-    await pending;
+    try {
+      await pending;
+    } catch (error) {
+      if (!snapshot) throw error;
+      snapshot.at = now - GATE_CACHE_TTL_MS + GATE_RETRY_MS;
+    }
   }
   return snapshot.hosts;
 }
