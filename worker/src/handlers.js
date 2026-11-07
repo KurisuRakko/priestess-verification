@@ -33,6 +33,7 @@ import { randomHex, sha256Hex } from "../../core/src/crypto.js";
 import { generateChallenge, validateChallenge } from "../../core/src/index.js";
 import { corsHeaders } from "./cors.js";
 import { shardNameForKey } from "./shards.js";
+import { recordEvent } from "./stats.js";
 import {
   constantTimeSecretMatch,
   consumeRedeemToken,
@@ -53,6 +54,63 @@ export function jsonResponse(body, status, extraHeaders = {}) {
     status,
     headers: { ...JSON_HEADERS, ...extraHeaders },
   });
+}
+
+/**
+ * 429 for a rate-limited entry point (`isRateLimited` in `stats.js`), with
+ * the entry point's own CORS headers so the widget can read it.
+ */
+export function rateLimitedResponse(extraHeaders = {}) {
+  return jsonResponse(
+    { success: false, reason: "rate_limited", error: "Too many requests" },
+    429,
+    { "Retry-After": "60", ...extraHeaders },
+  );
+}
+
+/**
+ * Statistics hook of the handlers below: `stats` is `{ ctx, site }` (see
+ * `stats.js`); callers that pass none (unit tests) record nothing.
+ */
+function record(env, stats, event, reason = "") {
+  if (!stats) return;
+  recordEvent(env, stats.ctx, { site: stats.site, event, reason });
+}
+
+/** capjs-core redeem failure -> the `redeem_fail` statistics reason. */
+export function redeemFailReason(result) {
+  switch (result.reason) {
+    case "invalid_solution":
+    case "expired":
+    case "already_redeemed":
+    case "instr_timeout":
+      return result.reason;
+    case "invalid_token":
+    case "scope_mismatch":
+      return "invalid_token";
+    case "invalid_body":
+    case "missing_token":
+    case "missing_solutions":
+    case "invalid_solutions":
+      return "bad_request";
+    case "nonce_store_error":
+      return "internal";
+  }
+  if (result.instr_error || result.blockedBy) return "instr_blocked";
+  return "other";
+}
+
+/**
+ * Siteverify-style HTTP failure -> the `siteverify_fail` / `gate_pass_fail`
+ * statistics reason.
+ */
+export function verifyFailReason(status, error) {
+  if (status === 400) return "bad_request";
+  if (status === 404) return "token_not_found";
+  if (error === "Token expired") return "token_expired";
+  if (error === "Invalid secret") return "invalid_secret";
+  if (status >= 500) return "internal";
+  return "other";
 }
 
 function tokenStoreFor(env, key) {
@@ -137,10 +195,11 @@ function challengeOptions(config, scope) {
 
 export async function handleChallenge(
   _request,
-  _env,
+  env,
   config,
   origin,
   tenant = SITE_TENANT,
+  stats = null,
 ) {
   if (!config.capSecret) {
     return jsonResponse(
@@ -153,6 +212,7 @@ export async function handleChallenge(
     config.capSecret,
     challengeOptions(config, tenant.scope),
   );
+  record(env, stats, "challenge_issued");
   return jsonResponse(challenge, 200, corsHeaders(origin));
 }
 
@@ -162,9 +222,11 @@ export async function handleRedeem(
   config,
   origin,
   tenant = SITE_TENANT,
+  stats = null,
 ) {
   const headers = corsHeaders(origin);
   if (!config.capSecret) {
+    record(env, stats, "redeem_fail", "internal");
     return jsonResponse(
       { success: false, error: "CAP_SECRET is not configured" },
       500,
@@ -176,6 +238,7 @@ export async function handleRedeem(
   try {
     body = await request.json();
   } catch {
+    record(env, stats, "redeem_fail", "bad_request");
     return jsonResponse(
       {
         success: false,
@@ -217,9 +280,11 @@ export async function handleRedeem(
       // The client only gets the generic message; the cause stays in the logs.
       console.error("[priestess-verification] nonce store error", result.error);
     }
+    record(env, stats, "redeem_fail", redeemFailReason(result));
     return redeemFailure(result, headers);
   }
 
+  record(env, stats, "redeem_ok");
   return jsonResponse(
     { success: true, token: result.token, expires: minted.expires },
     200,
@@ -243,10 +308,22 @@ export function consumeScopedToken(token, env, tenant) {
   return consumeForTenant(token, env, tenant.keySuffix);
 }
 
+/** A siteverify answer, counted as `siteverify_ok` / `siteverify_fail`. */
+function verifyResult(env, stats, body, status) {
+  if (body.success) {
+    record(env, stats, "siteverify_ok");
+  } else {
+    record(env, stats, "siteverify_fail", verifyFailReason(status, body.error));
+  }
+  return jsonResponse(body, status);
+}
+
 /** `/siteverify`: the Worker-wide tenant, checked against `SITEVERIFY_SECRET`. */
-export async function handleSiteverify(request, env, config) {
+export async function handleSiteverify(request, env, config, stats = null) {
   if (!config.siteverifySecret) {
-    return jsonResponse(
+    return verifyResult(
+      env,
+      stats,
       { success: false, error: "Siteverify is not configured" },
       500,
     );
@@ -256,6 +333,7 @@ export async function handleSiteverify(request, env, config) {
     env,
     (secret) => constantTimeSecretMatch(secret, config.siteverifySecret),
     SITE_TENANT.keySuffix,
+    stats,
   );
 }
 
@@ -263,28 +341,45 @@ export async function handleSiteverify(request, env, config) {
  * `/<siteKey>/siteverify`: a registered site's tokens, checked against the
  * sha256 of that site's secret (`site.secretHash`).
  */
-export async function handleSiteSiteverify(request, env, site, keySuffix) {
+export async function handleSiteSiteverify(
+  request,
+  env,
+  site,
+  keySuffix,
+  stats = null,
+) {
   return verifyWithSecret(
     request,
     env,
     (secret) =>
       constantTimeSecretMatch(sha256Hex(String(secret)), site.secretHash),
     keySuffix,
+    stats,
   );
 }
 
-async function verifyWithSecret(request, env, secretMatches, keySuffix) {
+async function verifyWithSecret(
+  request,
+  env,
+  secretMatches,
+  keySuffix,
+  stats,
+) {
   let body;
   try {
     body = await request.json();
   } catch {
-    return jsonResponse(
+    return verifyResult(
+      env,
+      stats,
       { success: false, error: "Missing required parameters" },
       400,
     );
   }
   if (!body || typeof body !== "object") {
-    return jsonResponse(
+    return verifyResult(
+      env,
+      stats,
       { success: false, error: "Missing required parameters" },
       400,
     );
@@ -292,21 +387,33 @@ async function verifyWithSecret(request, env, secretMatches, keySuffix) {
 
   const { secret, response } = body;
   if (!secret || !response) {
-    return jsonResponse(
+    return verifyResult(
+      env,
+      stats,
       { success: false, error: "Missing required parameters" },
       400,
     );
   }
 
   if (!secretMatches(secret)) {
-    return jsonResponse({ success: false, error: "Invalid secret" }, 403);
+    return verifyResult(
+      env,
+      stats,
+      { success: false, error: "Invalid secret" },
+      403,
+    );
   }
 
   const result = await consumeForTenant(response, env, keySuffix);
   if (!result.ok) {
-    return jsonResponse({ success: false, error: result.error }, result.status);
+    return verifyResult(
+      env,
+      stats,
+      { success: false, error: result.error },
+      result.status,
+    );
   }
-  return jsonResponse({ success: true }, 200);
+  return verifyResult(env, stats, { success: true }, 200);
 }
 
 /**
@@ -314,12 +421,19 @@ async function verifyWithSecret(request, env, secretMatches, keySuffix) {
  * secret from the caller. Only demo-scoped tokens are stored under the
  * `@demo` suffix, so a production token is never accepted here.
  */
-export async function handleDemoSiteverify(request, env, config) {
+export async function handleDemoSiteverify(request, env, config, stats = null) {
   if (!isSameOriginRequest(request)) {
-    return jsonResponse({ success: false, error: "Forbidden" }, 403);
+    return verifyResult(
+      env,
+      stats,
+      { success: false, error: "Forbidden" },
+      403,
+    );
   }
   if (!config.siteverifySecret) {
-    return jsonResponse(
+    return verifyResult(
+      env,
+      stats,
       { success: false, error: "Siteverify is not configured" },
       500,
     );
@@ -333,7 +447,9 @@ export async function handleDemoSiteverify(request, env, config) {
   }
   const token = body?.response;
   if (!token) {
-    return jsonResponse(
+    return verifyResult(
+      env,
+      stats,
       { success: false, error: "Missing required parameters" },
       400,
     );
@@ -341,9 +457,14 @@ export async function handleDemoSiteverify(request, env, config) {
 
   const result = await consumeForTenant(token, env, DEMO_TENANT.keySuffix);
   if (!result.ok) {
-    return jsonResponse({ success: false, error: result.error }, result.status);
+    return verifyResult(
+      env,
+      stats,
+      { success: false, error: result.error },
+      result.status,
+    );
   }
-  return jsonResponse({ success: true }, 200);
+  return verifyResult(env, stats, { success: true }, 200);
 }
 
 export function isSameOriginRequest(request) {

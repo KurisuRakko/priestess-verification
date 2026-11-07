@@ -53,12 +53,29 @@
   "durable_objects": {
     "bindings": [
       { "name": "TOKEN_STORE", "class_name": "TokenStore" },
-      { "name": "SITE_REGISTRY", "class_name": "SiteRegistry" }
+      { "name": "SITE_REGISTRY", "class_name": "SiteRegistry" },
+      { "name": "STATS_STORE", "class_name": "StatsStore" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["TokenStore"] },
-    { "tag": "v2", "new_sqlite_classes": ["SiteRegistry"] }
+    { "tag": "v2", "new_sqlite_classes": ["SiteRegistry"] },
+    { "tag": "v3", "new_sqlite_classes": ["StatsStore"] }
+  ],
+  // Per-IP limits (see `src/stats.js`): challenges, and redeems plus gate
+  // passes. Counted per Cloudflare location and approximate by design.
+  // `namespace_id` must be unique within the Cloudflare account.
+  "ratelimits": [
+    {
+      "name": "RL_CHALLENGE",
+      "namespace_id": "7301",
+      "simple": { "limit": 60, "period": 60 }
+    },
+    {
+      "name": "RL_REDEEM",
+      "namespace_id": "7302",
+      "simple": { "limit": 30, "period": 60 }
+    }
   ],
   "routes": [{ "pattern": "verify.rakko.cn", "custom_domain": true }],
   "observability": { "enabled": true }
