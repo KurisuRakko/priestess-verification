@@ -7,6 +7,8 @@ import type { MascotPose } from "./common";
 import { fill, withHost } from "./common";
 import type { GateConfig } from "./config";
 import { postJson } from "./config";
+import type { FailureKind } from "./failure";
+import { failureFromMessage, failureFromPass } from "./failure";
 import { Mascot } from "./icons";
 import { usePacedStatus } from "./paced-status";
 import type { StatusGroup } from "./status-steps";
@@ -16,15 +18,16 @@ import type { GateStrings } from "./strings";
 /**
  * The real state: checking → computing (the widget's progress events) →
  * submitting (the token goes to /__gate/pass) → passed, or failed from any of
- * them. `failed` carries what to show and an optional code. What the page
- * shows trails it through `usePacedStatus`.
+ * them. `failed` carries why (failure.ts: picks the label and the hint saying
+ * what to do) and an optional code. What the page shows trails it through
+ * `usePacedStatus`.
  */
 type Phase =
   | { name: "checking" }
   | { name: "computing"; progress: number }
   | { name: "submitting" }
   | { name: "passed" }
-  | { name: "failed"; detail: string; code?: string };
+  | { name: "failed"; kind: FailureKind; code?: string };
 
 /**
  * The challenge (status 403 page), laid out like a browser-check page: no
@@ -72,14 +75,14 @@ export function Challenge({
       }
       setPhase({
         name: "failed",
-        detail: s.passFailed,
+        kind: failureFromPass(res.status, data),
         code: data?.error || `HTTP ${res.status}`,
       });
     } catch (error) {
       if (id === current.current) {
         setPhase({
           name: "failed",
-          detail: s.network,
+          kind: "network",
           code: (error as Error).message,
         });
       }
@@ -111,7 +114,8 @@ export function Challenge({
     : passed
       ? withHost(s.subPassed, config.host)
       : s.subChecking;
-  const label = failed ? failed.detail : step.text;
+  const failure = failed ? s.failures[failed.kind] : null;
+  const label = failure ? failure.label : step.text;
   // The real progress, live (only the text is paced): none before the first
   // progress event, 100 once the work is done, gone on success or failure.
   const percent =
@@ -120,8 +124,8 @@ export function Challenge({
       : phase.name === "computing"
         ? Math.round(phase.progress)
         : 100;
-  const hint = failed
-    ? null
+  const hint = failure
+    ? failure.hint
     : passed
       ? withHost(s.hintPassed, config.host)
       : s.hintWorking;
@@ -197,7 +201,7 @@ export function Challenge({
               onError={(message) =>
                 setPhase({
                   name: "failed",
-                  detail: s.widgetError,
+                  kind: failureFromMessage(message),
                   code: message,
                 })
               }

@@ -12,6 +12,11 @@ import {
 } from "../src/gate.js";
 import worker from "../src/index.js";
 import { fill, formatTtl } from "../web/src/gate/common.ts";
+import {
+  FAILURE_KINDS,
+  failureFromMessage,
+  failureFromPass,
+} from "../web/src/gate/failure.ts";
 import { flattenSteps, nextStatusStep } from "../web/src/gate/status-steps.ts";
 import { STRINGS } from "../web/src/gate/strings.ts";
 
@@ -184,7 +189,7 @@ describe("gate: without a pass", () => {
       headers: { Accept: HTML_ACCEPT, "Accept-Language": "en-US,zh;q=0.5" },
     });
     const enHtml = await en.text();
-    expect(enHtml).toContain("no action is needed and no data is collected");
+    expect(enHtml).toContain("no action is needed and no personal data is collected");
     expect(enHtml).toContain("<title>Security verification · verify.rakko.cn</title>");
   });
 
@@ -784,5 +789,53 @@ describe("gate: paced status steps", () => {
     expect(nextStatusStep(steps, 0, "passed")).toBe(at("passed"));
     expect(nextStatusStep(steps, 6, "passed")).toBe(at("passed"));
     expect(nextStatusStep(steps, at("passed"), "passed")).toBe(at("passed"));
+  });
+});
+
+describe("gate: failure guidance", () => {
+  it("reads the widget's and the server's error texts", () => {
+    const cases = {
+      "Too many requests": "rate_limited",
+      "Instrumentation blocked (automated_browser)": "env_blocked",
+      "Instrumentation timed out": "env_blocked",
+      "Instrumentation timeout": "env_blocked",
+      "Blocked by instrumentation": "env_blocked",
+      "Challenge expired": "expired",
+      "Challenge already redeemed": "expired",
+      "Failed to fetch": "network",
+      "NetworkError when attempting to fetch resource.": "network",
+      "Load failed": "network",
+      "Failed to parse challenge response from server": "network",
+      "Invalid solution": "unknown",
+      "Nonce store unavailable": "unknown",
+      unknown: "unknown",
+      "": "unknown",
+    };
+    for (const [message, kind] of Object.entries(cases)) {
+      expect(failureFromMessage(message), message).toBe(kind);
+    }
+  });
+
+  it("reads the /__gate/pass response", () => {
+    const limited = { success: false, reason: "rate_limited", error: "Too many requests" };
+    expect(failureFromPass(429, limited)).toBe("rate_limited");
+    expect(failureFromPass(429, null)).toBe("rate_limited");
+    expect(failureFromPass(403, { ok: false, error: "Token expired" })).toBe("expired");
+    expect(failureFromPass(404, { ok: false, error: "Token not found" })).toBe("expired");
+    expect(failureFromPass(403, { ok: false, error: "Forbidden" })).toBe("unknown");
+    expect(failureFromPass(400, { ok: false, error: "Missing required parameters" })).toBe("unknown");
+    expect(failureFromPass(502, null)).toBe("network");
+  });
+
+  it("has a label and a hint for every kind, in both languages", () => {
+    for (const lang of ["zh", "en"]) {
+      expect(Object.keys(STRINGS[lang].failures).sort()).toEqual([...FAILURE_KINDS].sort());
+      for (const kind of FAILURE_KINDS) {
+        const { label, hint } = STRINGS[lang].failures[kind];
+        expect(label.length, `${lang} ${kind}`).toBeGreaterThan(0);
+        expect(hint.length, `${lang} ${kind}`).toBeGreaterThan(0);
+        expect(`${label}${hint}`, `${lang} ${kind}`).not.toMatch(/[!！]/);
+      }
+    }
   });
 });

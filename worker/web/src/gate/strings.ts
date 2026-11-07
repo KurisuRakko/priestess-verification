@@ -36,14 +36,34 @@ const zh = {
   // the small line under the status
   hintWorking: "验证完成前，请勿关闭此页面。",
   hintPassed: "即将跳转至 {host}。",
-  widgetError:
-    "验证组件运行时出错，可能由网络中断或浏览器限制导致。请重新验证；如问题持续出现，请将下方会话 ID 提供给站点管理员。",
-  passFailed: "验证结果已失效（可能已过期或已被使用），请重新验证。",
-  network: "无法连接验证服务，请检查网络连接后重新验证。",
+  // the failed state, one entry per FailureKind (failure.ts): `label` takes
+  // the status line, `hint` the line under it, saying what to do
+  failures: {
+    rate_limited: {
+      label: "验证请求过于频繁",
+      hint: "当前网络发出的验证请求过多，请等待一分钟后重新验证。",
+    },
+    env_blocked: {
+      label: "浏览器环境检测未通过",
+      hint: "请停用可能修改网页脚本的扩展程序，或改用最新版本的 Chrome、Edge、Firefox 或 Safari 后重新验证。",
+    },
+    expired: {
+      label: "验证结果已失效",
+      hint: "本次验证已过期或已被使用，请重新验证。",
+    },
+    network: {
+      label: "无法连接验证服务",
+      hint: "请检查网络连接后重新验证。",
+    },
+    unknown: {
+      label: "验证过程中出现错误",
+      hint: "请重新验证；如问题持续出现，请将页面底部的会话 ID 提供给站点管理员。",
+    },
+  },
   retry: "重新验证",
   errorCode: "错误代码：",
   explain:
-    "{host} 需要先确认您的连接安全，然后才能继续。验证由一组在您浏览器本地完成的工作量证明计算和运行环境检测组成，无需任何操作，也不会收集任何数据。",
+    "{host} 需要先确认您的连接安全，然后才能继续。验证由一组在您浏览器本地完成的工作量证明计算和运行环境检测组成，无需任何操作，也不会收集任何个人数据。",
   // facts filled into the copy
   ttlUnits: {
     hour: ["{n} 小时", "{n} 小时"],
@@ -118,16 +138,32 @@ const en: typeof zh = {
   percent: "{n}%",
   hintWorking: "Please keep this page open until verification completes.",
   hintPassed: "You will be redirected to {host} shortly.",
-  widgetError:
-    "The verification component encountered an error, possibly due to a network interruption or a browser restriction. Please verify again; if the problem persists, provide the session ID below to the site administrator.",
-  passFailed:
-    "The verification result is no longer valid (it may have expired or already been used). Please verify again.",
-  network:
-    "Unable to reach the verification service. Check your network connection and verify again.",
+  failures: {
+    rate_limited: {
+      label: "Too many verification requests",
+      hint: "Too many verification requests have been made from your network. Wait one minute, then verify again.",
+    },
+    env_blocked: {
+      label: "The browser environment check did not pass",
+      hint: "Disable extensions that modify page scripts, or use the latest version of Chrome, Edge, Firefox or Safari, then verify again.",
+    },
+    expired: {
+      label: "The verification result is no longer valid",
+      hint: "This verification has expired or has already been used. Verify again.",
+    },
+    network: {
+      label: "Unable to reach the verification service",
+      hint: "Check your network connection, then verify again.",
+    },
+    unknown: {
+      label: "An error occurred during verification",
+      hint: "Verify again. If the problem persists, provide the session ID at the bottom of this page to the site administrator.",
+    },
+  },
   retry: "Verify again",
   errorCode: "Error code: ",
   explain:
-    "{host} needs to review the security of your connection before proceeding. Verification consists of a proof-of-work computation and an environment check that run locally in your browser; no action is needed and no data is collected.",
+    "{host} needs to review the security of your connection before proceeding. Verification consists of a proof-of-work computation and an environment check that run locally in your browser; no action is needed and no personal data is collected.",
   ttlUnits: {
     hour: ["{n} hour", "{n} hours"],
     minute: ["{n} minute", "{n} minutes"],
