@@ -198,7 +198,8 @@ function challengeOptions(config, scope) {
  * Mints a challenge for `tenant`. `risk` (`assessRisk` in `risk.js`, computed
  * by the router before any Durable Object call) multiplies the workload on
  * top of the site's own settings, and its reason is the `challenge_issued`
- * statistics reason.
+ * statistics reason — only when the workload actually grew (`applyRisk`
+ * returns `config` itself otherwise), else "".
  */
 export async function handleChallenge(
   _request,
@@ -216,11 +217,12 @@ export async function handleChallenge(
       corsHeaders(origin),
     );
   }
+  const scaled = applyRisk(config, risk);
   const challenge = await generateChallenge(
     config.capSecret,
-    challengeOptions(applyRisk(config, risk), tenant.scope),
+    challengeOptions(scaled, tenant.scope),
   );
-  record(env, stats, "challenge_issued", risk.reason);
+  record(env, stats, "challenge_issued", scaled === config ? "" : risk.reason);
   return jsonResponse(challenge, 200, corsHeaders(origin));
 }
 

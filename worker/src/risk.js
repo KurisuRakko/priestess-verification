@@ -156,7 +156,10 @@ export async function assessRisk(request, env, config) {
  * `config` with the workload multiplied by `risk.factor`, applied on top of
  * any per-site override: `hashwxDifficulty` when the challenge carries
  * hashwx, `challengeCount` when it carries SHA-256 (format 1 or
- * `sha256-pow`). Both are clamped to what capjs-core accepts.
+ * `sha256-pow`). Both are clamped to what capjs-core accepts. Returns
+ * `config` itself when nothing grew (no PoW protocol, e.g. instrumentation
+ * only, or already at the cap), so callers can tell by identity whether the
+ * risk reason actually applied.
  */
 export function applyRisk(config, risk) {
   if (!risk || risk.factor <= 1) return config;
@@ -174,5 +177,8 @@ export function applyRisk(config, risk) {
       MAX_CHALLENGE_COUNT,
     );
   }
-  return next;
+  const grew =
+    next.hashwxDifficulty !== config.hashwxDifficulty ||
+    next.challengeCount !== config.challengeCount;
+  return grew ? next : config;
 }

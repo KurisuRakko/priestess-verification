@@ -183,7 +183,7 @@ describe("risk signals", () => {
     expect(riskFor("datacenter", false, capped).factor).toBe(4);
   });
 
-  it("classifies AS numbers, never penalising Private Relay egress", () => {
+  it("classifies AS numbers, sparing Private Relay's Akamai and Fastly egress", () => {
     expect(asnSignal(AWS, cfg)).toBe("datacenter");
     expect(asnSignal(WARP, cfg)).toBe("warp");
     for (const asn of PRIVATE_RELAY) {
@@ -296,6 +296,16 @@ describe("applying the factor", () => {
       CHALLENGE_COUNT: "300",
     });
     expect(applyRisk(pow, risk).challengeCount).toBe(1000);
+  });
+
+  it("returns the config itself when no workload grows", () => {
+    const instrOnly = config({ CHALLENGE_PROTOCOLS: "instrumentation" });
+    expect(applyRisk(instrOnly, risk)).toBe(instrOnly);
+    const capped = config({
+      CHALLENGE_PROTOCOLS: "sha256-pow",
+      CHALLENGE_COUNT: "1000",
+    });
+    expect(applyRisk(capped, risk)).toBe(capped);
   });
 });
 
@@ -458,6 +468,17 @@ describe("risk at the entry points", () => {
     expect(await countsFor(`gate:${host}`)).toEqual({
       "challenge_issued/datacenter": 1,
     });
+  });
+
+  it("records no reason when the challenge carries no proof of work", async () => {
+    const host = `t${randomHex(6)}.risk.test`;
+    const res = await call(
+      `https://${host}/__gate/challenge`,
+      { method: "POST", cf: { asn: AWS } },
+      { CHALLENGE_PROTOCOLS: "instrumentation" },
+    );
+    expect(res.status).toBe(200);
+    expect(await countsFor(`gate:${host}`)).toEqual({ "challenge_issued/": 1 });
   });
 
   it("checks the hard limit first and never consults the soft one for a refused request", async () => {

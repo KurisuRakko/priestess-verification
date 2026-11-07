@@ -266,7 +266,7 @@ describe("widget assets", () => {
     expect(second.status).toBe(304);
   });
 
-  it("does not expose the hashwx wasm unless it is enabled", async () => {
+  it("serves the hashwx wasm even without the CHALLENGE_PROTOCOLS opt-in", async () => {
     // No `CHALLENGE_PROTOCOLS` opt-in here: the asset is served anyway, because
     // embedders enable hashwx through the widget, not through the Worker.
     const res = await request("/hashwx.wasm");
