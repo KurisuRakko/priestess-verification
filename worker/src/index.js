@@ -28,8 +28,11 @@
  *   *    /admin…               admin console, Priestess sign-in (see admin/index.js)
  *
  * Server-side gate (`gate.js`), checked before every route above:
- *   ANY  <GATE_UPSTREAMS host>/*  whole site gated; with a valid pass cookie the
- *                             request is reverse-proxied to that host's origin
+ *   ANY  <gate host>/*      whole site gated (hosts from `GATE_UPSTREAMS` or
+ *                             added in /admin); exempt paths and disabled hosts
+ *                             are proxied straight through, otherwise a valid
+ *                             pass cookie is required before the request is
+ *                             reverse-proxied to that host's origin
  *   GET  /protected, /protected/*  gated on every other host; a valid pass gets
  *                             the built-in example page
  *   GET  /__gate/widget.js, /__gate/mascot/*.webp, /__gate/*.wasm,
@@ -119,7 +122,7 @@ export default {
     // OPTIONS, and on this Worker's own host it only claims `/protected*` and
     // `/__gate/*` (it returns `null` for everything else). The registered-site
     // routes and `/admin` below are therefore only reachable on hosts that are
-    // not in `GATE_UPSTREAMS`.
+    // not gate hosts (`GATE_UPSTREAMS` or the hosts added in /admin).
     try {
       const gated = await handleGate(request, env, config, ctx);
       if (gated) return gated;
