@@ -4,9 +4,12 @@
  *
  * Which requests are gated:
  *
- *   - on a host listed in `GATE_UPSTREAMS` (`{"example.com":"https://origin…"}`)
- *     every request is gated; once the visitor holds a valid pass it is
- *     reverse-proxied to that host's upstream origin;
+ *   - on a gate host — listed in `GATE_UPSTREAMS`
+ *     (`{"example.com":"https://origin…"}`) or added in the admin console
+ *     (see `gate-hosts.js`) — every request is gated; once the visitor holds a
+ *     valid pass it is reverse-proxied to that host's upstream origin. An
+ *     admin host may be disabled (every request proxied unchecked) and may
+ *     list exempt paths, which are proxied without a pass;
  *   - on any other host (this Worker's own, e.g. verify.rakko.cn) only
  *     `/protected` and `/protected/*` are gated, and a valid pass gets the
  *     built-in example page (`renderProtectedPage`).
@@ -44,6 +47,7 @@
  */
 
 import { sha256Hex } from "../../core/src/crypto.js";
+import { gatePolicy, isExemptPath } from "./gate-hosts.js";
 import { renderGatePage, renderProtectedPage } from "./gate-page.js";
 import {
   GATE_TENANT,
@@ -53,6 +57,7 @@ import {
   isSameOriginRequest,
   jsonResponse,
 } from "./handlers.js";
+import { registryFor } from "./site-registry.js";
 import { ASSET_PATHS, isWidgetPath, versionedPath, widgetResponse } from "./widget.js";
 
 export const GATE_PREFIX = "/__gate/";
@@ -505,11 +510,21 @@ async function handleGateRoute(request, env, config, url) {
 export async function handleGate(request, env, config) {
   const url = new URL(request.url);
   const host = url.hostname.toLowerCase();
-  const upstream = config.gateUpstreams.get(host) ?? null;
 
   if (url.pathname.startsWith(GATE_PREFIX)) {
     return handleGateRoute(request, env, config, url);
   }
+
+  // Configured hosts and this Worker's own hosts resolve without the
+  // registry; any other host reads the per-isolate snapshot (gate-hosts.js).
+  const policy = await gatePolicy(config, host, () => registryFor(env));
+  if (
+    policy &&
+    (!policy.enabled || isExemptPath(policy.exemptPaths, url.pathname))
+  ) {
+    return proxyToUpstream(request, url, policy.upstream);
+  }
+  const upstream = policy?.upstream ?? null;
 
   const selfProtected =
     url.pathname === PROTECTED_PATH ||

@@ -13,6 +13,10 @@ import { DurableObject } from "cloudflare:workers";
  * (see `sites.js`) and caches it per isolate. Writes only come from the admin
  * console, so the free plan's rows-written budget is untouched by verification
  * traffic.
+ *
+ * The same instance also holds the gate hosts added from the admin console
+ * (`gate_hosts`; see `gate-hosts.js`), read the same way: one whole-table
+ * list per isolate per cache period.
  */
 
 const REGISTRY_NAME = "registry";
@@ -28,6 +32,17 @@ function rowToSite(row) {
     secretHash: row.secret_hash,
     origins: JSON.parse(row.origins),
     settings: JSON.parse(row.settings),
+    enabled: row.enabled === 1,
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+function rowToGateHost(row) {
+  return {
+    host: row.host,
+    upstream: row.upstream,
+    exemptPaths: JSON.parse(row.exempt_paths),
     enabled: row.enabled === 1,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
@@ -58,6 +73,16 @@ export class SiteRegistry extends DurableObject {
          sub TEXT NOT NULL,
          profile TEXT NOT NULL,
          expires INTEGER NOT NULL
+       ) WITHOUT ROWID`,
+    );
+    this.#sql.exec(
+      `CREATE TABLE IF NOT EXISTS gate_hosts (
+         host TEXT PRIMARY KEY,
+         upstream TEXT NOT NULL,
+         exempt_paths TEXT NOT NULL,
+         enabled INTEGER NOT NULL DEFAULT 1,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL
        ) WITHOUT ROWID`,
     );
   }
@@ -128,6 +153,62 @@ export class SiteRegistry extends DurableObject {
 
   async deleteSite(siteKey) {
     this.#sql.exec("DELETE FROM sites WHERE site_key = ?", siteKey);
+    return this.#sql.exec("SELECT changes() AS changed").one().changed === 1;
+  }
+
+  async getGateHost(host) {
+    const rows = this.#sql
+      .exec("SELECT * FROM gate_hosts WHERE host = ?", host)
+      .toArray();
+    return rows.length > 0 ? rowToGateHost(rows[0]) : null;
+  }
+
+  async listGateHosts() {
+    return this.#sql
+      .exec("SELECT * FROM gate_hosts ORDER BY created_at, host")
+      .toArray()
+      .map(rowToGateHost);
+  }
+
+  /** Returns `false` when the host is already taken. */
+  async createGateHost({ host, upstream, exemptPaths, enabled }) {
+    const now = Date.now();
+    this.#sql.exec(
+      `INSERT INTO gate_hosts (host, upstream, exempt_paths, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(host) DO NOTHING`,
+      host,
+      upstream,
+      JSON.stringify(exemptPaths),
+      enabled ? 1 : 0,
+      now,
+      now,
+    );
+    return this.#sql.exec("SELECT changes() AS changed").one().changed === 1;
+  }
+
+  /** Applies the given fields; returns the updated host or `null`. */
+  async updateGateHost(host, patch) {
+    const current = await this.getGateHost(host);
+    if (!current) return null;
+    const next = {
+      upstream: patch.upstream ?? current.upstream,
+      exemptPaths: patch.exemptPaths ?? current.exemptPaths,
+      enabled: patch.enabled ?? current.enabled,
+    };
+    this.#sql.exec(
+      `UPDATE gate_hosts SET upstream = ?, exempt_paths = ?, enabled = ?, updated_at = ?
+       WHERE host = ?`,
+      next.upstream,
+      JSON.stringify(next.exemptPaths),
+      next.enabled ? 1 : 0,
+      Date.now(),
+      host,
+    );
+    return this.getGateHost(host);
+  }
+
+  async deleteGateHost(host) {
+    this.#sql.exec("DELETE FROM gate_hosts WHERE host = ?", host);
     return this.#sql.exec("SELECT changes() AS changed").one().changed === 1;
   }
 

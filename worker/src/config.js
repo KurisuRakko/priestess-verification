@@ -101,6 +101,40 @@ export function parseProtocols(raw) {
 }
 
 /**
+ * `raw` trimmed and lowercased when it is a bare hostname (no scheme, port,
+ * path or credentials), otherwise `null`. Shared by `GATE_UPSTREAMS` and the
+ * admin gate API (`gate-hosts.js`).
+ */
+export function bareHostname(raw) {
+  const name = String(raw ?? "").trim().toLowerCase();
+  let hostUrl;
+  try {
+    hostUrl = new URL(`https://${name}`);
+  } catch {
+    hostUrl = null;
+  }
+  return name && hostUrl?.hostname === name ? name : null;
+}
+
+/**
+ * `raw` as a bare `https:` origin: `{ url }` on success, otherwise `{ error }`
+ * with `"url"` (not a URL), `"https"` (another scheme) or `"origin"` (has a
+ * path, query, credentials or non-canonical spelling). A trailing `/` is
+ * tolerated.
+ */
+export function parseHttpsOrigin(raw) {
+  let url;
+  try {
+    url = new URL(String(raw));
+  } catch {
+    return { error: "url" };
+  }
+  if (url.protocol !== "https:") return { error: "https" };
+  if (url.origin !== String(raw).replace(/\/$/, "")) return { error: "origin" };
+  return { url };
+}
+
+/**
  * `GATE_UPSTREAMS`: a JSON object mapping a public hostname to the origin the
  * server-side gate proxies it to, e.g. `{"example.com":"https://origin.example.com"}`.
  * Keys are bare hostnames (matched against the request URL's hostname, case
@@ -123,36 +157,29 @@ export function parseGateUpstreams(raw) {
     );
   }
   for (const [host, target] of Object.entries(parsed)) {
-    const name = host.trim().toLowerCase();
-    let hostUrl;
-    try {
-      hostUrl = new URL(`https://${name}`);
-    } catch {
-      hostUrl = null;
-    }
-    if (!name || hostUrl?.hostname !== name) {
+    const name = bareHostname(host);
+    if (!name) {
       throw new Error(
         `[config] GATE_UPSTREAMS keys must be bare hostnames, got ${JSON.stringify(host)}`,
       );
     }
-    let url;
-    try {
-      url = new URL(String(target));
-    } catch {
+    const parsedTarget = parseHttpsOrigin(target);
+    if (parsedTarget.error === "url") {
       throw new Error(
         `[config] GATE_UPSTREAMS[${JSON.stringify(host)}] is not a URL: ${JSON.stringify(target)}`,
       );
     }
-    if (url.protocol !== "https:") {
+    if (parsedTarget.error === "https") {
       throw new Error(
         `[config] GATE_UPSTREAMS[${JSON.stringify(host)}] must be an https: origin, got ${JSON.stringify(target)}`,
       );
     }
-    if (url.origin !== String(target).replace(/\/$/, "")) {
+    if (parsedTarget.error === "origin") {
       throw new Error(
         `[config] GATE_UPSTREAMS[${JSON.stringify(host)}] must be a bare origin (no path), got ${JSON.stringify(target)}`,
       );
     }
+    const url = parsedTarget.url;
     upstreams.set(name, url.origin);
   }
   return upstreams;

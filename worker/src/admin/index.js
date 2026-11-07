@@ -13,6 +13,7 @@
  *   POST /admin/api/logout
  *   GET  /admin/api/me          current admin          (session)
  *   *    /admin/api/sites…      site management        (session, see api.js)
+ *   *    /admin/api/gate…       gate hosts             (session, see gate-api.js)
  *
  * Every response is `no-store`, unframeable and sent with a strict CSP; the
  * pages get a per-request nonce for their inline styles and scripts. Every
@@ -28,6 +29,7 @@ import rippleGeometryJs from "../../../vendor/rakko-design/design-system/src/rip
 import { readAdminConfig } from "../config.js";
 import { isSameOriginRequest } from "../handlers.js";
 import { handleSitesApi } from "./api.js";
+import { handleGateApi } from "./gate-api.js";
 import {
   handleAdminLogin,
   handleAdminLogout,
@@ -177,6 +179,14 @@ export async function handleAdmin(request, env, config, url) {
     pathname.startsWith("/admin/api/sites/")
   ) {
     const response = await handleSitesApi(request, env, pathname);
+    if (response) return withHeaders(response);
+  }
+
+  if (
+    pathname === "/admin/api/gate" ||
+    pathname.startsWith("/admin/api/gate/")
+  ) {
+    const response = await handleGateApi(request, env, config, pathname);
     if (response) return withHeaders(response);
   }
 
