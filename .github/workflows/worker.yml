@@ -1,0 +1,102 @@
+name: Worker
+
+on:
+  push:
+    paths:
+      - "worker/**"
+      - "core/**"
+      - "vendor/rakko-design/**"
+      - ".github/workflows/worker.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "core/**"
+      - "vendor/rakko-design/**"
+      - ".github/workflows/worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install (worker)
+        working-directory: worker
+        run: npm ci
+
+      - name: Test (worker)
+        working-directory: worker
+        run: npm test
+
+      - name: Build web assets
+        working-directory: worker
+        run: npm run build:web
+
+      - name: Check generated assets are up to date
+        working-directory: worker
+        run: |
+          if ! git diff --exit-code -- src/generated; then
+            echo "::error::worker/src/generated is out of sync with the sources; run 'npm run build:web' in worker/ and commit the generated files."
+            exit 1
+          fi
+
+      - name: Check Rakko Design compliance
+        run: node scripts/check-design.mjs
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: worker-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Check deploy credentials
+        id: credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN is not configured; skipping deploy."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.credentials.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        if: steps.credentials.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install (worker)
+        if: steps.credentials.outputs.enabled == 'true'
+        working-directory: worker
+        run: npm ci
+
+      - name: Deploy (worker)
+        if: steps.credentials.outputs.enabled == 'true'
+        working-directory: worker
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
