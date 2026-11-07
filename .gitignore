@@ -1,6 +1,7 @@
 .old
 build/Release
 package-lock.json
+!worker/package-lock.json
 .env
 *~
 .fuse_hidden*
