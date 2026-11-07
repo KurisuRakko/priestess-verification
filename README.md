@@ -81,7 +81,7 @@ The console's statistics tab (`/admin#stats`) reads counters kept in the `StatsS
 
 | Event | Reasons |
 | --- | --- |
-| `challenge_issued` | |
+| `challenge_issued` | empty, `datacenter`, `warp`, `burst`, `datacenter+burst`, `warp+burst` |
 | `redeem_ok` | |
 | `redeem_fail` | `invalid_solution`, `expired`, `already_redeemed`, `instr_blocked`, `instr_timeout`, `invalid_token`, `bad_request`, `internal`, `other` |
 | `siteverify_ok` | |
@@ -91,7 +91,7 @@ The console's statistics tab (`/admin#stats`) reads counters kept in the `StatsS
 | `gate_pass_fail` | `token_not_found`, `token_expired`, `bad_request`, `other` |
 | `rate_limited` | `challenge`, `redeem`, `gate_pass`, `siteverify` |
 
-For `redeem_fail`, `instr_blocked` covers an instrumentation error or a `blockedBy` result, `invalid_token` includes a scope mismatch, `bad_request` covers `invalid_body`, `missing_token`, `missing_solutions` and `invalid_solutions`, and `internal` covers a nonce-store error and a missing `CAP_SECRET`. For `rate_limited`, the reason is the entry point that was limited.
+For `challenge_issued`, the reason states why the difficulty was raised (see [Adaptive difficulty](#adaptive-difficulty)); an empty reason means the challenge was issued at the configured difficulty. For `redeem_fail`, `instr_blocked` covers an instrumentation error or a `blockedBy` result, `invalid_token` includes a scope mismatch, `bad_request` covers `invalid_body`, `missing_token`, `missing_solutions` and `invalid_solutions`, and `internal` covers a nonce-store error and a missing `CAP_SECRET`. For `rate_limited`, the reason is the entry point that was limited.
 
 The `site` dimension has three forms:
 
@@ -131,6 +131,7 @@ The response has the following structure (a schema sketch, not literal JSON):
   "events": [ <the nine event names, in a fixed order> ],
   "totals": { <each of the nine event names>: 0 },
   "reasons": {
+    "challenge_issued": { <reason>: 0 },
     "redeem_fail": { <reason>: 0 },
     "siteverify_fail": { <reason>: 0 },
     "gate_pass_fail": { <reason>: 0 },
@@ -143,13 +144,13 @@ The response has the following structure (a schema sketch, not literal JSON):
 }
 ```
 
-`totals` and every `series` row always contain all nine event keys, with zero for an event that has no data. Each reason group is present; a group contains only the reasons that were recorded. `bySite` always covers every site seen in the range, even when `site` is set; it is sorted by `challenge_issued` in descending order, then by site identifier. `label` is the registered site's name, the host for a `gate:<host>` entry, `default`, or the site key when the registry has no matching site.
+`totals` and every `series` row always contain all nine event keys, with zero for an event that has no data. Each reason group is present; a group contains only the reasons that were recorded, and the empty reason is never listed. `reasons.challenge_issued` therefore holds only the raised challenges; the challenges issued at the configured difficulty are the difference between `totals.challenge_issued` and its sum. `bySite` always covers every site seen in the range, even when `site` is set; it is sorted by `challenge_issued` in descending order, then by site identifier. `label` is the registered site's name, the host for a `gate:<host>` entry, `default`, or the site key when the registry has no matching site.
 
 With a session, invalid parameters answer `400` with `{ "error": "<short message>" }`, a non-GET request answers `405`, and a deployment without `STATS_STORE` answers `503`. Responses are sent with `Cache-Control: no-store`.
 
 ### Rate limiting
 
-Three rate-limit bindings are configured in `wrangler.jsonc`; `RL_REDEEM` serves both redeem and gate-pass checks under different key prefixes:
+Four rate-limit bindings are configured in `wrangler.jsonc`; `RL_REDEEM` serves both redeem and gate-pass checks under different key prefixes, and `RL_CHALLENGE_SOFT` never refuses a request:
 
 | Binding | Limit | Key prefix | Entry points |
 | --- | --- | --- | --- |
@@ -157,6 +158,7 @@ Three rate-limit bindings are configured in `wrangler.jsonc`; `RL_REDEEM` serves
 | `RL_REDEEM` | 30 requests per 60 seconds | `redeem:` | `/redeem`, `/demo/redeem`, `/<siteKey>/redeem`, `/__gate/redeem` |
 | `RL_REDEEM` | 30 requests per 60 seconds | `gate_pass:` | `/__gate/pass` |
 | `RL_SITEVERIFY` | 600 requests per 60 seconds | `siteverify:` | `/siteverify`, `/demo/siteverify`, `/<siteKey>/siteverify` |
+| `RL_CHALLENGE_SOFT` | 15 requests per 60 seconds (soft) | `challenge_soft:` | the `RL_CHALLENGE` entry points |
 
 The key is `<kind>:<CF-Connecting-IP>`. For rate limiting, the IP exists only in that key for the duration of the limit check; the Worker does not persist it. Limits are counted per Cloudflare location and are approximate by design.
 
@@ -169,6 +171,44 @@ A limited request answers HTTP `429` with `Retry-After: 60` and the body
 ```
 
 Where the entry point sends CORS headers, the 429 response carries them as well; the `siteverify` endpoints send none. A limited request for an unknown site key answers `429` but is not counted, so random site keys cannot add statistics rows.
+
+`RL_CHALLENGE_SOFT` is checked only after `RL_CHALLENGE` has let a challenge request through; a request refused by `RL_CHALLENGE` answers `429` and never reaches the soft limit. Exceeding the soft limit does not refuse the request: it raises the difficulty of the challenge (the `burst` signal, see [Adaptive difficulty](#adaptive-difficulty)). A missing binding, a missing `CF-Connecting-IP` header or a binding error counts as no burst.
+
+### Proof of work
+
+Production challenges use format 2 with HashWX: `CHALLENGE_PROTOCOLS` is `hashwx,instrumentation` in `wrangler.jsonc`. HashWX is a memory-hard hash with a randomly generated program per seed, so a GPU or a hand-written SHA-256 solver gains far less over a browser than it does against SHA-256. The widget downloads the HashWX module from `/hashwx.wasm`, which the Worker serves regardless of `CHALLENGE_PROTOCOLS`; the integration snippet in the console already sets `window.CAP_CUSTOM_HASHWX_URL` to it.
+
+`instrumentation` must stay in the list. Format 1 (an empty `CHALLENGE_PROTOCOLS`) always runs the environment check; format 2 runs it only when `instrumentation` is listed. The gate adds it on its own, but registered sites and the legacy routes do not.
+
+A HashWX challenge consists of `HASHWX_CHALLENGE_COUNT` sub-challenges, each with difficulty `HASHWX_DIFFICULTY / HASHWX_CHALLENGE_COUNT`. The client needs on average `HASHWX_DIFFICULTY` hash evaluations in total, so the solving time is proportional to `HASHWX_DIFFICULTY`. More sub-challenges lower the variance of the solving time; the server verifies one hash per sub-challenge.
+
+The defaults, `HASHWX_DIFFICULTY` 150000 and `HASHWX_CHALLENGE_COUNT` 8, were calibrated with the real widget against a local Worker (Chromium, the median of seven complete verifications each). On an emulated low-end phone (four cores with a combined CPU budget of one sixth of four desktop cores, `navigator.hardwareConcurrency` = 4) a verification takes about 1.4 seconds; on an 8-core desktop it completes within the widget's minimum display time of one second. Chrome's DevTools CPU throttling does not apply to Web Workers, which do the hashing, so the emulation limits the browser's CPU with a cgroup quota instead. Verifying a solution costs the Worker well under one millisecond of CPU time per redeem.
+
+To adjust the workload, change `HASHWX_DIFFICULTY` (1 to 1000000000) in `wrangler.jsonc` and redeploy; a registered site can override it in the console (高级设置, HashWX 难度). Double the value to double the expected solving time. `CHALLENGE_COUNT`, `CHALLENGE_SIZE` and `CHALLENGE_DIFFICULTY` only apply to SHA-256 challenges (format 1 or `sha256-pow`) and have no effect while the protocol is HashWX; the console hides these settings accordingly and marks stored overrides as not in effect.
+
+### Adaptive difficulty
+
+Every challenge entry point (`/challenge`, `/demo/challenge`, `/<siteKey>/challenge` and `/__gate/challenge`) assesses the request before any Durable Object is called and raises the workload when one of the following signals applies:
+
+| Signal | Condition | Factor (variable, default) |
+| --- | --- | --- |
+| `datacenter` | `request.cf.asn` belongs to a cloud or hosting provider | `RISK_DATACENTER_FACTOR`, 4 |
+| `warp` | `request.cf.asn` is a Cloudflare WARP egress | `RISK_WARP_FACTOR`, 6 |
+| `burst` | the client IP exceeded `RL_CHALLENGE_SOFT` (15 challenges per 60 seconds) | `RISK_BURST_FACTOR`, 3 |
+
+`datacenter` and `warp` are mutually exclusive: an AS number belongs to at most one list. When both an AS signal and `burst` apply, the factors are multiplied and the product is capped at `RISK_MAX_FACTOR` (default 18). The resulting reasons are `datacenter`, `warp`, `burst`, `datacenter+burst` (12) and `warp+burst` (18). All four factors are integers; the per-signal factors accept 1 to 1000 and the cap 1 to 1000000, and an invalid value fails every request with a logged configuration error.
+
+The factor multiplies `HASHWX_DIFFICULTY` when the challenge carries HashWX, after any per-site override; at the defaults, the raised challenges carry 450000 (×3), 600000 (×4), 900000 (×6), 1800000 (×12) and 2700000 (×18). For SHA-256 challenges (format 1 or `sha256-pow`) the factor multiplies `CHALLENGE_COUNT` instead, up to 1000. The parameters are signed into the challenge (format 1: the JWT payload; format 2: the encrypted expectations inside the JWT), so redeem verifies the difficulty the client was given, not the current configuration, and an edited difficulty fails with `invalid_token` or `invalid_solution`.
+
+The AS lists are `DATACENTER_ASNS` and `WARP_ASNS` in `worker/src/risk.js`, one AS number per line with its holder as a comment. They cover the major clouds (AWS, Google Cloud, Azure, Oracle Cloud, Alibaba Cloud, Tencent Cloud, Huawei Cloud) and common VPS providers (DigitalOcean, Akamai Connected Cloud/Linode, Vultr, Hetzner, OVH, Contabo, Scaleway, IT7/BandwagonHost, RackNerd, DMIT, Leaseweb, Hostinger). To maintain them:
+
+- check a candidate on `https://bgp.he.net/AS<n>` and add it only if its address space is predominantly rented servers; leave it out when in doubt;
+- never list privacy relays or consumer VPN egress networks. iCloud Private Relay egress operated by Akamai (AS36183, AS20940) and Fastly (AS54113) is deliberately absent, and so is Google's AS15169, which also carries Google's own privacy proxies;
+- `RISK_EXTRA_ASNS` adds AS numbers to the hosting list and `RISK_EXEMPT_ASNS` exempts AS numbers from both lists, without a code change. Both take comma-separated AS numbers, with or without the `AS` prefix.
+
+Cloudflare's AS13335 is treated as `warp`, because many VPN products now tunnel through WARP. Part of iCloud Private Relay's egress also uses AS13335, and those Private Relay users therefore receive the `warp` factor as well. AS209242 (Cloudflare London) is not listed: it originates customer prefixes announced through Cloudflare, not WARP egress.
+
+Privacy: the AS number and the IP address are read only in memory while the challenge request is handled, compared against the lists and the soft limit, and discarded. They are never logged, written to storage or included in statistics; the statistics record only the resulting reason as a `challenge_issued` reason. Country and region are not used.
 
 ### Local development
 
@@ -261,7 +301,7 @@ const { success } = await res.json();
 
 ### Configuration
 
-All optional tuning lives in `wrangler.jsonc` under `vars` (defaults shown): `ALLOWED_ORIGINS` (`https://verify.rakko.cn`), `CHALLENGE_COUNT` (50), `CHALLENGE_SIZE` (32), `CHALLENGE_DIFFICULTY` (4), `INSTRUMENTATION_LEVEL` (3), `BLOCK_AUTOMATED_BROWSERS` (false), `TOKEN_TTL_MS` (20 min), `CHALLENGE_PROTOCOLS` (empty = format 1), `HASHWX_DIFFICULTY` (1000000), `HASHWX_CHALLENGE_COUNT` (4), and for the server-side gate `GATE_UPSTREAMS` (empty), `GATE_PASS_TTL_S` (1800), `GATE_COOKIE_DOMAIN` (empty = host-only), `GATE_BLOCK_AUTOMATED_BROWSERS` (true: gate challenges reject automated browsers regardless of `BLOCK_AUTOMATED_BROWSERS`). A registered site can override `CHALLENGE_COUNT`, `CHALLENGE_SIZE`, `CHALLENGE_DIFFICULTY`, `TOKEN_TTL_MS` and `BLOCK_AUTOMATED_BROWSERS` for itself in the console.
+All optional tuning lives in `wrangler.jsonc` under `vars` (defaults shown): `ALLOWED_ORIGINS` (`https://verify.rakko.cn`), `CHALLENGE_COUNT` (50), `CHALLENGE_SIZE` (32), `CHALLENGE_DIFFICULTY` (4), `INSTRUMENTATION_LEVEL` (3), `BLOCK_AUTOMATED_BROWSERS` (false), `TOKEN_TTL_MS` (20 min), `CHALLENGE_PROTOCOLS` (empty = format 1; `wrangler.jsonc` sets `hashwx,instrumentation`), `HASHWX_DIFFICULTY` (150000), `HASHWX_CHALLENGE_COUNT` (8), `RISK_DATACENTER_FACTOR` (4), `RISK_WARP_FACTOR` (6), `RISK_BURST_FACTOR` (3), `RISK_MAX_FACTOR` (18), `RISK_EXTRA_ASNS` and `RISK_EXEMPT_ASNS` (empty), and for the server-side gate `GATE_UPSTREAMS` (empty), `GATE_PASS_TTL_S` (1800), `GATE_COOKIE_DOMAIN` (empty = host-only), `GATE_BLOCK_AUTOMATED_BROWSERS` (true: gate challenges reject automated browsers regardless of `BLOCK_AUTOMATED_BROWSERS`). A registered site can override `CHALLENGE_COUNT`, `CHALLENGE_SIZE`, `CHALLENGE_DIFFICULTY`, `HASHWX_DIFFICULTY`, `TOKEN_TTL_MS` and `BLOCK_AUTOMATED_BROWSERS` for itself in the console; the console shows only the settings that apply to the protocol in effect, and saving keeps every setting it does not show or that was not changed.
 
 Admin sign-in: `PRIESTESS_API_BASE` (`https://api.rakko.cn/auth/priestess/oidc`), `PRIESTESS_APP_ID` (`priestess-verification`), `ADMIN_ALLOWED_SUBS` (comma separated Priestess subs; empty lets nobody in).
 
