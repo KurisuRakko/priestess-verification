@@ -26,10 +26,16 @@ const PATTERNS: [FailureKind, RegExp][] = [
   ["rate_limited", /too many requests|rate_limited/i],
   // The widget's "Instrumentation blocked (…)" / "Instrumentation timed out",
   // the server's "Instrumentation timeout" / "Blocked by instrumentation".
-  ["env_blocked", /^instrumentation (blocked|timed out|timeout)|blocked by instrumentation/i],
+  [
+    "env_blocked",
+    /^instrumentation (blocked|timed out|timeout)|blocked by instrumentation/i,
+  ],
   // Redeem: "Challenge expired" / "Challenge already redeemed"; pass:
   // "Token expired" / "Token not found".
-  ["expired", /^challenge (expired|already redeemed)$|^token (expired|not found)$/i],
+  [
+    "expired",
+    /^challenge (expired|already redeemed)$|^token (expired|not found)$/i,
+  ],
   // fetch() rejections (Chromium, Firefox, Safari, React Native polyfills),
   // a response that is not the service's JSON, a wasm that did not load.
   [

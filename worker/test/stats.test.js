@@ -234,22 +234,29 @@ describe("statistics reasons", () => {
       expect(redeemFailReason({ reason })).toBe(expected);
     }
     expect(
-      redeemFailReason({ reason: "instr_automated_browser", instr_error: true }),
+      redeemFailReason({
+        reason: "instr_automated_browser",
+        instr_error: true,
+      }),
     ).toBe("instr_blocked");
     expect(redeemFailReason({ reason: "x", blockedBy: "webdriver" })).toBe(
       "instr_blocked",
     );
-    expect(redeemFailReason({ reason: "instr_timeout", instr_error: true })).toBe(
-      "instr_timeout",
-    );
+    expect(
+      redeemFailReason({ reason: "instr_timeout", instr_error: true }),
+    ).toBe("instr_timeout");
   });
 
   it("maps siteverify failures onto the siteverify_fail reasons", () => {
-    expect(verifyFailReason(400, "Missing required parameters")).toBe("bad_request");
+    expect(verifyFailReason(400, "Missing required parameters")).toBe(
+      "bad_request",
+    );
     expect(verifyFailReason(404, "Token not found")).toBe("token_not_found");
     expect(verifyFailReason(403, "Token expired")).toBe("token_expired");
     expect(verifyFailReason(403, "Invalid secret")).toBe("invalid_secret");
-    expect(verifyFailReason(500, "Siteverify is not configured")).toBe("internal");
+    expect(verifyFailReason(500, "Siteverify is not configured")).toBe(
+      "internal",
+    );
     expect(verifyFailReason(403, "Forbidden")).toBe("other");
   });
 });
@@ -452,7 +459,9 @@ describe("rate limiting", () => {
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
     expect(limiter.keys).toEqual(["gate_pass:203.0.113.7"]);
     expect(store.calls).toBe(0);
-    expect(await countsFor(`gate:${host}`)).toEqual({ "rate_limited/gate_pass": 10 });
+    expect(await countsFor(`gate:${host}`)).toEqual({
+      "rate_limited/gate_pass": 10,
+    });
   });
 
   it("limits a registered site's redeem before its tokens are touched", async () => {
@@ -591,11 +600,12 @@ describe("GET /admin/api/stats", () => {
 
     expect(body.series).toHaveLength(24);
     for (const [index, bucket] of body.series.entries()) {
-      for (const event of STATS_EVENTS) expect(typeof bucket[event]).toBe("number");
+      for (const event of STATS_EVENTS)
+        expect(typeof bucket[event]).toBe("number");
       if (index > 0) {
-        expect(Date.parse(bucket.t) - Date.parse(body.series[index - 1].t)).toBe(
-          HOUR_MS,
-        );
+        expect(
+          Date.parse(bucket.t) - Date.parse(body.series[index - 1].t),
+        ).toBe(HOUR_MS);
       }
     }
     const last = Date.parse(body.series[23].t);
@@ -619,9 +629,9 @@ describe("GET /admin/api/stats", () => {
       expect(body.series).toHaveLength(count);
       for (const [index, bucket] of body.series.entries()) {
         if (index > 0) {
-          expect(Date.parse(bucket.t) - Date.parse(body.series[index - 1].t)).toBe(
-            DAY_MS,
-          );
+          expect(
+            Date.parse(bucket.t) - Date.parse(body.series[index - 1].t),
+          ).toBe(DAY_MS);
         }
         expect(Object.keys(bucket)).toHaveLength(STATS_EVENTS.length + 1);
       }
@@ -697,7 +707,8 @@ describe("GET /admin/api/stats", () => {
       }),
     ]);
     for (const entry of body.bySite) {
-      for (const event of STATS_EVENTS) expect(typeof entry[event]).toBe("number");
+      for (const event of STATS_EVENTS)
+        expect(typeof entry[event]).toBe("number");
     }
     const counts = body.bySite.map((entry) => entry.challenge_issued);
     expect(counts).toEqual([...counts].sort((a, b) => b - a));

@@ -19,7 +19,9 @@ const ORIGIN = "https://verify.rakko.cn";
 const ADMIN_SUB = "plu_UUHsG7WuUqDXh4R6";
 const UA = "Mozilla/5.0 (gate-hosts-test) Chrome/140.0";
 const HTML_ACCEPT = "text/html,application/xhtml+xml,*/*;q=0.8";
-const UPSTREAMS = JSON.stringify({ "cfg.example": "https://cfg-origin.example" });
+const UPSTREAMS = JSON.stringify({
+  "cfg.example": "https://cfg-origin.example",
+});
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -156,7 +158,9 @@ describe("gate hosts: per-isolate cache", () => {
   it("serves hits from memory and reloads after the TTL", async () => {
     const { calls, registryFn } = fakeRegistry([row]);
     const now = 1_000_000;
-    expect((await loadAdminGateHosts(registryFn, now)).has("cached.example")).toBe(true);
+    expect(
+      (await loadAdminGateHosts(registryFn, now)).has("cached.example"),
+    ).toBe(true);
     await loadAdminGateHosts(registryFn, now + GATE_CACHE_TTL_MS - 1);
     expect(calls.n).toBe(1);
     await loadAdminGateHosts(registryFn, now + GATE_CACHE_TTL_MS);
@@ -179,7 +183,9 @@ describe("gate hosts: per-isolate cache", () => {
       };
     };
     const later = now + GATE_CACHE_TTL_MS;
-    expect((await loadAdminGateHosts(failing, later)).has("cached.example")).toBe(true);
+    expect(
+      (await loadAdminGateHosts(failing, later)).has("cached.example"),
+    ).toBe(true);
     expect(calls.n).toBe(2);
     // Retried only after GATE_RETRY_MS, not on every request.
     await loadAdminGateHosts(failing, later + GATE_RETRY_MS - 1);
@@ -194,7 +200,9 @@ describe("gate hosts: per-isolate cache", () => {
         throw new Error("registry down");
       },
     });
-    await expect(loadAdminGateHosts(failing, 1)).rejects.toThrow("registry down");
+    await expect(loadAdminGateHosts(failing, 1)).rejects.toThrow(
+      "registry down",
+    );
   });
 
   it("shares one registry read between concurrent misses", async () => {
@@ -216,7 +224,9 @@ describe("gate hosts: per-isolate cache", () => {
       source: "config",
     });
     expect(calls.n).toBe(0);
-    expect(await gatePolicy(config, "cached.example", registryFn)).toMatchObject({
+    expect(
+      await gatePolicy(config, "cached.example", registryFn),
+    ).toMatchObject({
       source: "admin",
     });
     expect(await gatePolicy(config, "other.example", registryFn)).toBeNull();
@@ -262,7 +272,10 @@ describe("gate hosts: admin API", () => {
     expect(entry.createdAt).toMatch(/^\d{4}-\d\d-\d\dT/);
     expect(entry.updatedAt).toBe(entry.createdAt);
 
-    const listed = await gateApi("", { cookie, extraEnv: { GATE_UPSTREAMS: UPSTREAMS } });
+    const listed = await gateApi("", {
+      cookie,
+      extraEnv: { GATE_UPSTREAMS: UPSTREAMS },
+    });
     expect(listed.status).toBe(200);
     const list = await listed.json();
     expect(list.selfHosts).toEqual(["verify.rakko.cn"]);
@@ -316,7 +329,9 @@ describe("gate hosts: admin API", () => {
     const cookie = await adminCookie();
     const host = freshHost();
     const body = { host, upstream: "https://origin.example" };
-    expect((await gateApi("", { method: "POST", cookie, body })).status).toBe(201);
+    expect((await gateApi("", { method: "POST", cookie, body })).status).toBe(
+      201,
+    );
     const dup = await gateApi("", { method: "POST", cookie, body });
     expect(dup.status).toBe(409);
     expect(await dup.json()).toEqual({ error: "host already exists" });
@@ -327,7 +342,12 @@ describe("gate hosts: admin API", () => {
       ["/cfg.example", "PATCH", { enabled: false }],
       ["/cfg.example", "DELETE", undefined],
     ]) {
-      const res = await gateApi(path, { method, cookie, body: reqBody, extraEnv });
+      const res = await gateApi(path, {
+        method,
+        cookie,
+        body: reqBody,
+        extraEnv,
+      });
       expect(res.status, `${method} ${path}`).toBe(409);
       expect((await res.json()).error).toMatch(/deployment configuration/);
     }
@@ -372,7 +392,11 @@ describe("gate hosts: admin API", () => {
     }
     const notJson = await callWorker(`${ORIGIN}/admin/api/gate`, {
       method: "POST",
-      headers: { Cookie: cookie, Origin: ORIGIN, "content-type": "application/json" },
+      headers: {
+        Cookie: cookie,
+        Origin: ORIGIN,
+        "content-type": "application/json",
+      },
       body: "{nope",
     });
     expect(notJson.status).toBe(400);
@@ -380,7 +404,9 @@ describe("gate hosts: admin API", () => {
     const list = await (await gateApi("", { cookie })).json();
     expect(list.hosts.some((h) => h.host === host)).toBe(false);
 
-    expect((await gateApi("", { method: "POST", cookie, body: ok })).status).toBe(201);
+    expect(
+      (await gateApi("", { method: "POST", cookie, body: ok })).status,
+    ).toBe(201);
     for (const [body, why] of [
       [{ upstream: "http://origin.example" }, /https/],
       [{ exemptPaths: ["/"] }, /must not be \//],
@@ -440,19 +466,27 @@ describe("gate hosts: request handling", () => {
       headers: { "User-Agent": UA, Cookie: await passCookie(host) },
     });
     expect(passed.status).toBe(200);
-    expect(String(upstream.mock.calls[3][0])).toBe("https://admin-origin.example/private");
+    expect(String(upstream.mock.calls[3][0])).toBe(
+      "https://admin-origin.example/private",
+    );
   });
 
   it("proxies every request of a disabled host", async () => {
     const host = freshHost();
-    await addHost({ host, upstream: "https://off-origin.example", enabled: false });
+    await addHost({
+      host,
+      upstream: "https://off-origin.example",
+      enabled: false,
+    });
     const upstream = vi.fn(async () => new Response("open"));
     vi.stubGlobal("fetch", upstream);
     const res = await callWorker(`https://${host}/anything`, {
       headers: { Accept: HTML_ACCEPT },
     });
     expect(res.status).toBe(200);
-    expect(String(upstream.mock.calls[0][0])).toBe("https://off-origin.example/anything");
+    expect(String(upstream.mock.calls[0][0])).toBe(
+      "https://off-origin.example/anything",
+    );
     // The gate's own routes stay with the Worker.
     const widget = await callWorker(`https://${host}/__gate/widget.js`);
     expect(widget.status).toBe(200);
@@ -461,7 +495,10 @@ describe("gate hosts: request handling", () => {
 
   it("applies admin changes in this isolate at once", async () => {
     const host = freshHost();
-    const cookie = await addHost({ host, upstream: "https://chg-origin.example" });
+    const cookie = await addHost({
+      host,
+      upstream: "https://chg-origin.example",
+    });
     const upstream = vi.fn(async () => new Response("ok"));
     vi.stubGlobal("fetch", upstream);
     expect((await callWorker(`https://${host}/`)).status).toBe(403);

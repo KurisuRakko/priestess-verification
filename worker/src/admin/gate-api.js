@@ -90,7 +90,8 @@ async function createGateHost(request, config, registry) {
 async function updateGateHost(request, registry, host) {
   const body = await readBody(request);
   const patch = {};
-  if ("upstream" in body) patch.upstream = validateUpstream(body.upstream, host);
+  if ("upstream" in body)
+    patch.upstream = validateUpstream(body.upstream, host);
   if ("exemptPaths" in body) {
     patch.exemptPaths = validateExemptPaths(body.exemptPaths);
   }
@@ -131,7 +132,8 @@ export async function handleGateApi(request, env, config, pathname) {
     if (config.gateUpstreams.has(host)) {
       return json({ error: CONFIG_READ_ONLY }, 409);
     }
-    if (method === "PATCH") return await updateGateHost(request, registry, host);
+    if (method === "PATCH")
+      return await updateGateHost(request, registry, host);
     const deleted = await registry.deleteGateHost(host);
     forgetGateHosts();
     return deleted
