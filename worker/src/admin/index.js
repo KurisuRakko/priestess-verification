@@ -13,6 +13,7 @@
  *   POST /admin/api/logout
  *   GET  /admin/api/me          current admin          (session)
  *   *    /admin/api/sites…      site management        (session, see api.js)
+ *   GET  /admin/api/stats      traffic statistics     (session, see stats-api.js)
  *
  * Every response is `no-store`, unframeable and sent with a strict CSP; the
  * pages get a per-request nonce for their inline styles and scripts. Every
@@ -35,6 +36,7 @@ import {
   readAdminSession,
 } from "./auth.js";
 import { renderAdminPage, renderCallbackPage } from "./page.js";
+import { handleStatsApi } from "./stats-api.js";
 
 function securityHeaders(nonce) {
   const scriptSrc = nonce ? `'self' 'nonce-${nonce}'` : "'none'";
@@ -178,6 +180,10 @@ export async function handleAdmin(request, env, config, url) {
   ) {
     const response = await handleSitesApi(request, env, pathname);
     if (response) return withHeaders(response);
+  }
+
+  if (pathname === "/admin/api/stats") {
+    return withHeaders(await handleStatsApi(request, env, url));
   }
 
   return withHeaders(json({ error: "not found" }, 404));

@@ -44,6 +44,7 @@
  */
 
 import { sha256Hex } from "../../core/src/crypto.js";
+import { corsHeaders } from "./cors.js";
 import { renderGatePage, renderProtectedPage } from "./gate-page.js";
 import {
   GATE_TENANT,
@@ -52,7 +53,10 @@ import {
   handleRedeem,
   isSameOriginRequest,
   jsonResponse,
+  rateLimitedResponse,
+  verifyFailReason,
 } from "./handlers.js";
+import { gateSite, isRateLimited, recordEvent } from "./stats.js";
 import { ASSET_PATHS, isWidgetPath, versionedPath, widgetResponse } from "./widget.js";
 
 export const GATE_PREFIX = "/__gate/";
@@ -324,7 +328,8 @@ function wantsHtml(request) {
   return (request.headers.get("Accept") ?? "").toLowerCase().includes("text/html");
 }
 
-function gateRequired(request, config, url) {
+function gateRequired(request, config, url, env, ctx) {
+  recordEvent(env, ctx, { site: gateSite(url.hostname), event: "gate_shown" });
   const ray = randomRay();
   if (!wantsHtml(request)) {
     return jsonResponse(
@@ -424,14 +429,15 @@ async function proxyToUpstream(request, url, upstream) {
 
 // ---- /__gate/* ----------------------------------------------------------
 
-async function handlePass(request, env, config, url) {
-  if (!isSameOriginRequest(request)) {
-    return jsonResponse({ ok: false, error: "Forbidden" }, 403);
-  }
+async function handlePass(request, env, config, url, ctx) {
+  const site = gateSite(url.hostname);
+  const fail = (error, status, reason) => {
+    recordEvent(env, ctx, { site, event: "gate_pass_fail", reason });
+    return jsonResponse({ ok: false, error }, status);
+  };
+  if (!isSameOriginRequest(request)) return fail("Forbidden", 403, "other");
   const key = await passKey(config);
-  if (!key) {
-    return jsonResponse({ ok: false, error: "Gate is not configured" }, 500);
-  }
+  if (!key) return fail("Gate is not configured", 500, "other");
 
   let body;
   try {
@@ -441,13 +447,15 @@ async function handlePass(request, env, config, url) {
   }
   const token = body?.token;
   if (typeof token !== "string" || token.length === 0) {
-    return jsonResponse({ ok: false, error: "Missing required parameters" }, 400);
+    return fail("Missing required parameters", 400, "bad_request");
   }
 
   const result = await consumeScopedToken(token, env, GATE_TENANT);
   if (!result.ok) {
-    return jsonResponse({ ok: false, error: result.error }, result.status);
+    const reason = verifyFailReason(result.status, result.error);
+    return fail(result.error, result.status, reason);
   }
+  recordEvent(env, ctx, { site, event: "gate_pass" });
 
   const exp = Math.floor(Date.now() / 1000) + config.gatePassTtlS;
   const { binding, domain } = passScope(config, url.hostname);
@@ -474,7 +482,14 @@ function handleLogout(request, config, url) {
   });
 }
 
-async function handleGateRoute(request, env, config, url) {
+// `/__gate/*` POST route -> rate-limit kind (`isRateLimited` in `stats.js`).
+const GATE_RATE_LIMITS = {
+  "/challenge": "challenge",
+  "/redeem": "redeem",
+  "/pass": "gate_pass",
+};
+
+async function handleGateRoute(request, env, config, url, ctx) {
   const subPath = url.pathname.slice(GATE_PREFIX.length - 1);
   // The gate only ever talks to its own origin.
   const origin =
@@ -484,13 +499,22 @@ async function handleGateRoute(request, env, config, url) {
     return widgetResponse(request, subPath);
   }
   if (request.method === "POST") {
+    // Rate limits come before any Durable Object call (see `stats.js`).
+    const site = gateSite(url.hostname);
+    const stats = { ctx, site };
+    const limit = GATE_RATE_LIMITS[subPath];
+    if (limit && (await isRateLimited(env, ctx, request, limit, site))) {
+      return rateLimitedResponse(
+        limit === "gate_pass" ? {} : corsHeaders(origin),
+      );
+    }
     switch (subPath) {
       case "/challenge":
-        return handleChallenge(request, env, config, origin, GATE_TENANT);
+        return handleChallenge(request, env, config, origin, GATE_TENANT, stats);
       case "/redeem":
-        return handleRedeem(request, env, config, origin, GATE_TENANT);
+        return handleRedeem(request, env, config, origin, GATE_TENANT, stats);
       case "/pass":
-        return handlePass(request, env, config, url);
+        return handlePass(request, env, config, url, ctx);
       case "/logout":
         return handleLogout(request, config, url);
     }
@@ -502,13 +526,13 @@ async function handleGateRoute(request, env, config, url) {
  * Answers the request when the gate is responsible for it, otherwise returns
  * `null` so the regular routes handle it.
  */
-export async function handleGate(request, env, config) {
+export async function handleGate(request, env, config, ctx) {
   const url = new URL(request.url);
   const host = url.hostname.toLowerCase();
   const upstream = config.gateUpstreams.get(host) ?? null;
 
   if (url.pathname.startsWith(GATE_PREFIX)) {
-    return handleGateRoute(request, env, config, url);
+    return handleGateRoute(request, env, config, url, ctx);
   }
 
   const selfProtected =
@@ -517,7 +541,7 @@ export async function handleGate(request, env, config) {
   if (!upstream && !selfProtected) return null;
 
   const exp = await validPass(request, config, host);
-  if (exp === null) return gateRequired(request, config, url);
+  if (exp === null) return gateRequired(request, config, url, env, ctx);
   if (upstream) return proxyToUpstream(request, url, upstream);
   return protectedPage(request, config, url, exp);
 }

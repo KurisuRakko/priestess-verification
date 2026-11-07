@@ -21,6 +21,10 @@
  *   POST /<siteKey>/challenge   a registered site's challenge (site scope, site origins)
  *   POST /<siteKey>/redeem      a registered site's redemption
  *   POST /<siteKey>/siteverify  a registered site's validation (site secret, no CORS)
+ *
+ * Every challenge, redeem and gate-pass entry point is rate limited per IP
+ * (`RL_CHALLENGE` / `RL_REDEEM`, see `stats.js`) before any Durable Object is
+ * touched, and every outcome is counted in `StatsStore` (`recordEvent`).
  *   *    /admin…               admin console, Priestess sign-in (see admin/index.js)
  *
  * Server-side gate (`gate.js`), checked before every route above:
@@ -54,9 +58,15 @@ import {
   handleSiteSiteverify,
   handleSiteverify,
   jsonResponse,
+  rateLimitedResponse,
 } from "./handlers.js";
 import { registryFor } from "./site-registry.js";
 import { loadSite, parseSitePath, siteConfig, siteTenant } from "./sites.js";
+import {
+  DEFAULT_SITE,
+  isRateLimited,
+  recordRateLimited,
+} from "./stats.js";
 import {
   ASSET_PATHS,
   isWidgetPath,
@@ -76,6 +86,7 @@ try {
 }
 
 export { SiteRegistry } from "./site-registry.js";
+export { StatsStore } from "./stats.js";
 export { TokenStore } from "./token-store.js";
 
 // Content-versioned URLs for everything the demo page loads, hashed once per
@@ -92,7 +103,7 @@ function demoAssetUrls() {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     let config;
@@ -110,7 +121,7 @@ export default {
     // routes and `/admin` below are therefore only reachable on hosts that are
     // not in `GATE_UPSTREAMS`.
     try {
-      const gated = await handleGate(request, env, config);
+      const gated = await handleGate(request, env, config, ctx);
       if (gated) return gated;
     } catch (error) {
       console.error("[priestess-verification] gate", error);
@@ -120,7 +131,7 @@ export default {
     const sitePath = parseSitePath(url.pathname);
     if (sitePath) {
       try {
-        return await handleSiteRequest(request, env, config, sitePath);
+        return await handleSiteRequest(request, env, config, sitePath, ctx);
       } catch (error) {
         console.error("[priestess-verification]", error);
         return jsonResponse({ success: false, error: "Internal error" }, 500, {
@@ -141,6 +152,7 @@ export default {
     }
 
     const origin = resolveAllowedOrigin(request, config.allowedOrigins);
+    const stats = { ctx, site: DEFAULT_SITE };
 
     if (request.method === "OPTIONS") {
       if (!origin) return new Response(null, { status: 403 });
@@ -169,28 +181,41 @@ export default {
         (url.pathname === "/challenge" || url.pathname === "/demo/challenge") &&
         request.method === "POST"
       ) {
+        if (await isRateLimited(env, ctx, request, "challenge", DEFAULT_SITE)) {
+          return rateLimitedResponse(corsHeaders(origin));
+        }
         const tenant = url.pathname.startsWith("/demo/")
           ? DEMO_TENANT
           : SITE_TENANT;
-        return await handleChallenge(request, env, config, origin, tenant);
+        return await handleChallenge(
+          request,
+          env,
+          config,
+          origin,
+          tenant,
+          stats,
+        );
       }
 
       if (
         (url.pathname === "/redeem" || url.pathname === "/demo/redeem") &&
         request.method === "POST"
       ) {
+        if (await isRateLimited(env, ctx, request, "redeem", DEFAULT_SITE)) {
+          return rateLimitedResponse(corsHeaders(origin));
+        }
         const tenant = url.pathname.startsWith("/demo/")
           ? DEMO_TENANT
           : SITE_TENANT;
-        return await handleRedeem(request, env, config, origin, tenant);
+        return await handleRedeem(request, env, config, origin, tenant, stats);
       }
 
       if (url.pathname === "/siteverify" && request.method === "POST") {
-        return await handleSiteverify(request, env, config);
+        return await handleSiteverify(request, env, config, stats);
       }
 
       if (url.pathname === "/demo/siteverify" && request.method === "POST") {
-        return await handleDemoSiteverify(request, env, config);
+        return await handleDemoSiteverify(request, env, config, stats);
       }
     } catch (error) {
       console.error("[priestess-verification]", error);
@@ -208,11 +233,34 @@ export default {
 /**
  * `/<siteKey>/challenge|redeem|siteverify` for a site registered in the admin
  * console. Unknown and disabled sites look the same: 404, no CORS headers.
+ *
+ * The rate limit is checked before the registry is read. A rejected request
+ * still looks the site up (the per-isolate snapshot, so a flood costs no extra
+ * registry reads) for its CORS headers and statistics: an unknown site gets a
+ * bare 429 and is not counted, so random site keys cannot add rows.
  */
-async function handleSiteRequest(request, env, config, { siteKey, action }) {
+async function handleSiteRequest(
+  request,
+  env,
+  config,
+  { siteKey, action },
+  ctx,
+) {
+  const limitKind =
+    request.method === "POST" && action !== "siteverify" ? action : null;
+  const limited =
+    limitKind !== null &&
+    (await isRateLimited(env, ctx, request, limitKind, null));
+
   const site = await loadSite(registryFor(env), siteKey);
   const cfg = site?.enabled ? siteConfig(config, site) : null;
   const origin = cfg ? resolveAllowedOrigin(request, cfg.allowedOrigins) : null;
+
+  if (limited) {
+    if (!cfg) return rateLimitedResponse({ Vary: "Origin" });
+    recordRateLimited(env, ctx, siteKey, limitKind);
+    return rateLimitedResponse(corsHeaders(origin));
+  }
 
   if (request.method === "OPTIONS") {
     if (!origin || action === "siteverify") {
@@ -239,11 +287,12 @@ async function handleSiteRequest(request, env, config, { siteKey, action }) {
   }
 
   const tenant = siteTenant(siteKey);
+  const stats = { ctx, site: siteKey };
   if (action === "challenge") {
-    return handleChallenge(request, env, cfg, origin, tenant);
+    return handleChallenge(request, env, cfg, origin, tenant, stats);
   }
   if (action === "redeem") {
-    return handleRedeem(request, env, cfg, origin, tenant);
+    return handleRedeem(request, env, cfg, origin, tenant, stats);
   }
-  return handleSiteSiteverify(request, env, site, tenant.keySuffix);
+  return handleSiteSiteverify(request, env, site, tenant.keySuffix, stats);
 }
