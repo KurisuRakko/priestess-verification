@@ -753,6 +753,7 @@ describe("GET /admin/api/stats", () => {
     expect(body.totals.gate_pass_fail).toBe(2);
     expect(body.totals.challenge_issued).toBe(0);
     expect(body.reasons).toEqual({
+      challenge_issued: {},
       redeem_fail: {},
       siteverify_fail: {},
       gate_pass_fail: { token_expired: 2 },

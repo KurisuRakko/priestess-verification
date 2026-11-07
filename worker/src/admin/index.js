@@ -156,7 +156,7 @@ export async function handleAdmin(request, env, config, url) {
     pathname === "/admin/api/sites" ||
     pathname.startsWith("/admin/api/sites/")
   ) {
-    const response = await handleSitesApi(request, env, pathname);
+    const response = await handleSitesApi(request, env, config, pathname);
     if (response) return withHeaders(response);
   }
 

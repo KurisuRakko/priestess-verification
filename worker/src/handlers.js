@@ -32,6 +32,7 @@
 import { randomHex, sha256Hex } from "../../core/src/crypto.js";
 import { generateChallenge, validateChallenge } from "../../core/src/index.js";
 import { corsHeaders } from "./cors.js";
+import { applyRisk, NO_RISK } from "./risk.js";
 import { shardNameForKey } from "./shards.js";
 import { recordEvent } from "./stats.js";
 import {
@@ -193,6 +194,12 @@ function challengeOptions(config, scope) {
   return options;
 }
 
+/**
+ * Mints a challenge for `tenant`. `risk` (`assessRisk` in `risk.js`, computed
+ * by the router before any Durable Object call) multiplies the workload on
+ * top of the site's own settings, and its reason is the `challenge_issued`
+ * statistics reason.
+ */
 export async function handleChallenge(
   _request,
   env,
@@ -200,6 +207,7 @@ export async function handleChallenge(
   origin,
   tenant = SITE_TENANT,
   stats = null,
+  risk = NO_RISK,
 ) {
   if (!config.capSecret) {
     return jsonResponse(
@@ -210,9 +218,9 @@ export async function handleChallenge(
   }
   const challenge = await generateChallenge(
     config.capSecret,
-    challengeOptions(config, tenant.scope),
+    challengeOptions(applyRisk(config, risk), tenant.scope),
   );
-  record(env, stats, "challenge_issued");
+  record(env, stats, "challenge_issued", risk.reason);
   return jsonResponse(challenge, 200, corsHeaders(origin));
 }
 
@@ -267,7 +275,10 @@ export async function handleRedeem(
         sha256Hex(verToken),
       );
       if (claimed) {
-        minted = { token: `${sigHex}:${verToken}`, expires: Date.now() + ttlMs_ };
+        minted = {
+          token: `${sigHex}:${verToken}`,
+          expires: Date.now() + ttlMs_,
+        };
       }
       return claimed;
     },
@@ -358,13 +369,7 @@ export async function handleSiteSiteverify(
   );
 }
 
-async function verifyWithSecret(
-  request,
-  env,
-  secretMatches,
-  keySuffix,
-  stats,
-) {
+async function verifyWithSecret(request, env, secretMatches, keySuffix, stats) {
   let body;
   try {
     body = await request.json();

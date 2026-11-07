@@ -25,7 +25,10 @@
  * Every challenge, redeem, siteverify and gate-pass entry point is rate
  * limited per IP (`RL_CHALLENGE` / `RL_REDEEM` / `RL_SITEVERIFY`, see
  * `stats.js`) before any Durable Object is touched, and every outcome is
- * counted in `StatsStore` (`recordEvent`).
+ * counted in `StatsStore` (`recordEvent`). Every challenge entry point also
+ * assesses the request's risk (`risk.js`: hosting network, WARP, soft
+ * per-IP limit `RL_CHALLENGE_SOFT`) at the same point and scales the proof
+ * of work accordingly.
  *   *    /admin…               admin console, Priestess sign-in (see admin/index.js)
  *
  * Server-side gate (`gate.js`), checked before every route above:
@@ -64,13 +67,10 @@ import {
   jsonResponse,
   rateLimitedResponse,
 } from "./handlers.js";
+import { assessRisk } from "./risk.js";
 import { registryFor } from "./site-registry.js";
 import { loadSite, parseSitePath, siteConfig, siteTenant } from "./sites.js";
-import {
-  DEFAULT_SITE,
-  isRateLimited,
-  recordRateLimited,
-} from "./stats.js";
+import { DEFAULT_SITE, isRateLimited, recordRateLimited } from "./stats.js";
 import {
   ASSET_PATHS,
   isWidgetPath,
@@ -188,6 +188,7 @@ export default {
         if (await isRateLimited(env, ctx, request, "challenge", DEFAULT_SITE)) {
           return rateLimitedResponse(corsHeaders(origin));
         }
+        const risk = await assessRisk(request, env, config);
         const tenant = url.pathname.startsWith("/demo/")
           ? DEMO_TENANT
           : SITE_TENANT;
@@ -198,6 +199,7 @@ export default {
           origin,
           tenant,
           stats,
+          risk,
         );
       }
 
@@ -252,7 +254,8 @@ export default {
  * still looks the site up (the per-isolate snapshot, so a flood costs no extra
  * registry reads) for its CORS headers (none for siteverify) and statistics:
  * an unknown site gets a bare 429 and is not counted, so random site keys
- * cannot add rows.
+ * cannot add rows. A challenge that passes the limit has its risk
+ * (`risk.js`) assessed before the registry is read as well.
  */
 async function handleSiteRequest(
   request,
@@ -265,6 +268,10 @@ async function handleSiteRequest(
   const limited =
     limitKind !== null &&
     (await isRateLimited(env, ctx, request, limitKind, null));
+  const risk =
+    !limited && limitKind === "challenge"
+      ? await assessRisk(request, env, config)
+      : undefined;
 
   const site = await loadSite(registryFor(env), siteKey);
   const cfg = site?.enabled ? siteConfig(config, site) : null;
@@ -305,7 +312,7 @@ async function handleSiteRequest(
   const tenant = siteTenant(siteKey);
   const stats = { ctx, site: siteKey };
   if (action === "challenge") {
-    return handleChallenge(request, env, cfg, origin, tenant, stats);
+    return handleChallenge(request, env, cfg, origin, tenant, stats, risk);
   }
   if (action === "redeem") {
     return handleRedeem(request, env, cfg, origin, tenant, stats);

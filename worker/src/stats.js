@@ -29,8 +29,12 @@ export const STATS_EVENTS = Object.freeze([
   "rate_limited",
 ]);
 
-/** The events that carry a reason, in the order the API lists them. */
+/**
+ * The events that carry a reason, in the order the API lists them.
+ * `challenge_issued` carries the adaptive-difficulty reason (`risk.js`).
+ */
 export const REASON_EVENTS = Object.freeze([
+  "challenge_issued",
   "redeem_fail",
   "siteverify_fail",
   "gate_pass_fail",

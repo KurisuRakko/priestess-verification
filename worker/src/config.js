@@ -22,10 +22,20 @@ export const DEFAULTS = {
   blockAutomatedBrowsers: false,
   gateBlockAutomatedBrowsers: true,
   tokenTtlMs: 20 * 60 * 1000,
-  hashwxDifficulty: 1_000_000,
-  hashwxChallengeCount: 4,
+  // Calibrated with the real widget (README "Proof of work"): about 1.4 s on
+  // an emulated low-end phone, at the widget's 1 s minimum on a desktop.
+  hashwxDifficulty: 150_000,
+  hashwxChallengeCount: 8,
   gatePassTtlS: 30 * 60,
+  riskDatacenterFactor: 4,
+  riskWarpFactor: 6,
+  riskBurstFactor: 3,
+  riskMaxFactor: 18,
 };
+
+/** Upper bounds of the two workloads the adaptive difficulty scales. */
+export const MAX_CHALLENGE_COUNT = 1000;
+export const MAX_HASHWX_DIFFICULTY = 1_000_000_000;
 
 function intVar(env, name, fallback, min, max) {
   const raw = env[name];
@@ -59,6 +69,7 @@ export const SITE_SETTING_RANGES = {
   challengeCount: [1, 1000],
   challengeSize: [1, 256],
   challengeDifficulty: [1, 16],
+  hashwxDifficulty: [1, MAX_HASHWX_DIFFICULTY],
   tokenTtlMs: [1000, 24 * 60 * 60 * 1000],
 };
 
@@ -85,6 +96,40 @@ export function parseAllowedOrigins(raw) {
   return origins;
 }
 
+/**
+ * `RISK_EXTRA_ASNS` / `RISK_EXEMPT_ASNS`: comma-separated AS numbers (`64500`
+ * or `AS64500`) -> `Set<number>`. Empty or unset = an empty set.
+ */
+export function parseAsnList(raw, name) {
+  const asns = new Set();
+  for (const entry of String(raw ?? "").split(",")) {
+    const value = entry.trim();
+    if (!value) continue;
+    const match = /^(?:AS)?([0-9]{1,10})$/i.exec(value);
+    const asn = match ? Number(match[1]) : Number.NaN;
+    if (!Number.isInteger(asn) || asn < 1 || asn > 4_294_967_295) {
+      throw new Error(
+        `[config] ${name} entries must be AS numbers, got ${JSON.stringify(value)}`,
+      );
+    }
+    asns.add(asn);
+  }
+  return asns;
+}
+
+/**
+ * The proof of work a challenge carries, as the admin console shows it:
+ * `"legacy"` (format 1, SHA-256) or the format-2 PoW protocols in order
+ * (`"hashwx"`, `"sha256-pow"`, `"sha256-pow,hashwx"`; empty when format 2
+ * carries no PoW at all).
+ */
+export function powProtocol(config) {
+  if (config.protocols.length === 0) return "legacy";
+  return config.protocols
+    .filter((protocol) => protocol !== "instrumentation")
+    .join(",");
+}
+
 export function parseProtocols(raw) {
   const protocols = String(raw ?? "")
     .split(",")
@@ -106,7 +151,9 @@ export function parseProtocols(raw) {
  * admin gate API (`gate-hosts.js`).
  */
 export function bareHostname(raw) {
-  const name = String(raw ?? "").trim().toLowerCase();
+  const name = String(raw ?? "")
+    .trim()
+    .toLowerCase();
   let hostUrl;
   try {
     hostUrl = new URL(`https://${name}`);
@@ -200,7 +247,9 @@ export function parseCookieDomain(raw) {
   if (
     url?.hostname !== value ||
     !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(value) ||
-    value.split(".").some((label) => label.startsWith("-") || label.endsWith("-")) ||
+    value
+      .split(".")
+      .some((label) => label.startsWith("-") || label.endsWith("-")) ||
     /^[0-9.]+$/.test(value)
   ) {
     throw new Error(
@@ -310,7 +359,7 @@ export function readConfig(env) {
       "HASHWX_DIFFICULTY",
       DEFAULTS.hashwxDifficulty,
       1,
-      1_000_000_000,
+      MAX_HASHWX_DIFFICULTY,
     ),
     hashwxChallengeCount: intVar(
       env,
@@ -319,5 +368,36 @@ export function readConfig(env) {
       1,
       64,
     ),
+    // Adaptive difficulty (`risk.js`).
+    riskDatacenterFactor: intVar(
+      env,
+      "RISK_DATACENTER_FACTOR",
+      DEFAULTS.riskDatacenterFactor,
+      1,
+      1000,
+    ),
+    riskWarpFactor: intVar(
+      env,
+      "RISK_WARP_FACTOR",
+      DEFAULTS.riskWarpFactor,
+      1,
+      1000,
+    ),
+    riskBurstFactor: intVar(
+      env,
+      "RISK_BURST_FACTOR",
+      DEFAULTS.riskBurstFactor,
+      1,
+      1000,
+    ),
+    riskMaxFactor: intVar(
+      env,
+      "RISK_MAX_FACTOR",
+      DEFAULTS.riskMaxFactor,
+      1,
+      1_000_000,
+    ),
+    riskExtraAsns: parseAsnList(env.RISK_EXTRA_ASNS, "RISK_EXTRA_ASNS"),
+    riskExemptAsns: parseAsnList(env.RISK_EXEMPT_ASNS, "RISK_EXEMPT_ASNS"),
   };
 }

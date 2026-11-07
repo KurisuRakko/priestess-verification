@@ -60,9 +60,15 @@ import {
   rateLimitedResponse,
   verifyFailReason,
 } from "./handlers.js";
+import { assessRisk } from "./risk.js";
 import { registryFor } from "./site-registry.js";
 import { gateSite, isRateLimited, recordEvent } from "./stats.js";
-import { ASSET_PATHS, isWidgetPath, versionedPath, widgetResponse } from "./widget.js";
+import {
+  ASSET_PATHS,
+  isWidgetPath,
+  versionedPath,
+  widgetResponse,
+} from "./widget.js";
 
 export const GATE_PREFIX = "/__gate/";
 export const PASS_COOKIE = "__pv_pass";
@@ -101,7 +107,11 @@ export async function passKey(config) {
       raw = encoder.encode(config.gateCookieSecret);
     } else {
       const parent = await hmacKey(encoder.encode(config.siteverifySecret));
-      raw = await crypto.subtle.sign("HMAC", parent, encoder.encode("gate-cookie"));
+      raw = await crypto.subtle.sign(
+        "HMAC",
+        parent,
+        encoder.encode("gate-cookie"),
+      );
     }
     key = await hmacKey(raw);
     keyCache.set(source, key);
@@ -158,7 +168,13 @@ export async function createPassValue(key, binding, userAgent, exp) {
  * Returns the pass expiry (epoch s) when `value` is a valid, unexpired pass for
  * `binding` + `userAgent`, otherwise `null`.
  */
-export async function verifyPassValue(key, value, binding, userAgent, now = Date.now()) {
+export async function verifyPassValue(
+  key,
+  value,
+  binding,
+  userAgent,
+  now = Date.now(),
+) {
   if (!key || typeof value !== "string") return null;
   const parts = value.split(".");
   if (parts.length !== 3 || parts[0] !== PASS_VERSION) return null;
@@ -225,7 +241,8 @@ export function stripPassCookie(header) {
  * `javascript:`) falls back to `/`, so `/__gate/pass` is not an open redirect.
  */
 export function safeReturnPath(raw, selfOrigin) {
-  if (typeof raw !== "string" || raw.length === 0 || raw.length > 2048) return "/";
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > 2048)
+    return "/";
   if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
     return "/";
   }
@@ -246,7 +263,8 @@ export function safeReturnPath(raw, selfOrigin) {
 
 let gateAssets = null;
 function gateAssetUrls() {
-  const prefixed = (path) => `${GATE_PREFIX.slice(0, -1)}${versionedPath(path)}`;
+  const prefixed = (path) =>
+    `${GATE_PREFIX.slice(0, -1)}${versionedPath(path)}`;
   gateAssets ??= {
     widget: prefixed("/widget.js"),
     capWasm: prefixed(ASSET_PATHS.capWasm),
@@ -330,7 +348,9 @@ function passFacts(config, host) {
 
 function wantsHtml(request) {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
-  return (request.headers.get("Accept") ?? "").toLowerCase().includes("text/html");
+  return (request.headers.get("Accept") ?? "")
+    .toLowerCase()
+    .includes("text/html");
 }
 
 function gateRequired(request, config, url, env, ctx) {
@@ -515,7 +535,15 @@ async function handleGateRoute(request, env, config, url, ctx) {
     }
     switch (subPath) {
       case "/challenge":
-        return handleChallenge(request, env, config, origin, GATE_TENANT, stats);
+        return handleChallenge(
+          request,
+          env,
+          config,
+          origin,
+          GATE_TENANT,
+          stats,
+          await assessRisk(request, env, config),
+        );
       case "/redeem":
         return handleRedeem(request, env, config, origin, GATE_TENANT, stats);
       case "/pass":

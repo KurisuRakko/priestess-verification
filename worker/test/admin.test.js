@@ -274,6 +274,54 @@ describe("admin API", () => {
     expect(form.status).toBe(403);
   });
 
+  it("lists the Worker-wide defaults and the PoW protocol with the sites", async () => {
+    const cookie = await adminCookie();
+    const res = await adminApi("/sites", { cookie });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.sites)).toBe(true);
+    // The test Worker runs format 1 (vitest.config.js clears
+    // CHALLENGE_PROTOCOLS), with CHALLENGE_COUNT 5 and CHALLENGE_DIFFICULTY 2.
+    expect(body.protocol).toBe("legacy");
+    expect(body.defaults).toMatchObject({
+      challengeCount: 5,
+      challengeDifficulty: 2,
+      challengeSize: 32,
+      tokenTtlMs: 20 * 60 * 1000,
+      blockAutomatedBrowsers: false,
+    });
+    expect(Number.isInteger(body.defaults.hashwxDifficulty)).toBe(true);
+  });
+
+  it("accepts a per-site hashwxDifficulty within the env var's range", async () => {
+    const cookie = await adminCookie();
+    const ok = await adminApi("/sites", {
+      method: "POST",
+      cookie,
+      body: {
+        name: "hashwx",
+        origins: ["https://hashwx.example"],
+        settings: { hashwxDifficulty: 300000 },
+      },
+    });
+    expect(ok.status).toBe(201);
+    expect((await ok.json()).site.settings).toEqual({
+      hashwxDifficulty: 300000,
+    });
+    for (const hashwxDifficulty of [0, 1_000_000_001, 1.5]) {
+      const bad = await adminApi("/sites", {
+        method: "POST",
+        cookie,
+        body: {
+          name: "hashwx",
+          origins: ["https://hashwx.example"],
+          settings: { hashwxDifficulty },
+        },
+      });
+      expect(bad.status, String(hashwxDifficulty)).toBe(400);
+    }
+  });
+
   it("validates input", async () => {
     const cookie = await adminCookie();
     for (const body of [

@@ -2,7 +2,8 @@
  * Admin API for registered sites. Every route here runs behind
  * `readAdminSession` (see `admin/index.js`).
  *
- *   GET    /admin/api/sites               list (never includes secrets)
+ *   GET    /admin/api/sites               list (never includes secrets), plus the
+ *                                        Worker-wide defaults and PoW protocol
  *   POST   /admin/api/sites               { name, origins, settings? } -> site + secret (shown once)
  *   PATCH  /admin/api/sites/<key>         { name?, origins?, settings?, enabled? }
  *   POST   /admin/api/sites/<key>/rotate  -> new secret (shown once)
@@ -10,6 +11,7 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
+import { powProtocol, SITE_SETTING_RANGES } from "../config.js";
 import { registryFor } from "../site-registry.js";
 import {
   forgetSites,
@@ -108,8 +110,21 @@ async function updateSite(request, registry, siteKey) {
   return json({ site: publicSite(site) });
 }
 
+/**
+ * What a site inherits when it leaves a setting out: the Worker-wide value of
+ * every per-site setting, and the PoW protocol in effect (`powProtocol`), which
+ * decides which of those settings apply at all.
+ */
+export function siteDefaults(config) {
+  const defaults = { blockAutomatedBrowsers: config.blockAutomatedBrowsers };
+  for (const key of Object.keys(SITE_SETTING_RANGES)) {
+    defaults[key] = config[key];
+  }
+  return { defaults, protocol: powProtocol(config) };
+}
+
 /** Routes `/admin/api/sites…`; `null` when nothing matches. */
-export async function handleSitesApi(request, env, pathname) {
+export async function handleSitesApi(request, env, config, pathname) {
   const registry = registryFor(env);
   const parts = pathname.split("/").slice(4); // "", admin, api, sites, …
   const method = request.method;
@@ -118,7 +133,7 @@ export async function handleSitesApi(request, env, pathname) {
     if (parts.length === 0) {
       if (method === "GET") {
         const sites = await registry.listSites();
-        return json({ sites: sites.map(publicSite) });
+        return json({ sites: sites.map(publicSite), ...siteDefaults(config) });
       }
       if (method === "POST") return await createSite(request, registry);
       return json({ error: "method not allowed" }, 405);

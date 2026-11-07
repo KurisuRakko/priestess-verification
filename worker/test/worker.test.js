@@ -40,7 +40,10 @@ function postJson(path, body, headers = {}) {
 }
 
 /** Runs the full widget flow against the test worker and returns the token. */
-async function createToken(challengePath = "/challenge", redeemPath = "/redeem") {
+async function createToken(
+  challengePath = "/challenge",
+  redeemPath = "/redeem",
+) {
   const challengeRes = await request(challengePath, { method: "POST" });
   expect(challengeRes.status).toBe(200);
   const challenge = await challengeRes.json();
@@ -70,7 +73,10 @@ async function sha256HexOf(res) {
 
 /** The page's `#page-config` JSON block, parsed. */
 function pageConfig(html) {
-  const match = /<script type="application\/json" id="page-config">([^<]*)<\/script>/.exec(html);
+  const match =
+    /<script type="application\/json" id="page-config">([^<]*)<\/script>/.exec(
+      html,
+    );
   expect(match).not.toBeNull();
   return JSON.parse(match[1]);
 }
@@ -98,7 +104,9 @@ describe("demo page", () => {
     // The mascot variants need no image URL: the widget's default base
     // derives from the /widget.js script directory.
     expect(html).not.toContain("CAP_MASCOT_URL");
-    expect(html).toMatch(/<script src="\/widget\.js\?v=[0-9a-f]{12}"><\/script>/);
+    expect(html).toMatch(
+      /<script src="\/widget\.js\?v=[0-9a-f]{12}"><\/script>/,
+    );
     expect(html).toContain("Based on Cap by Tiago (Apache-2.0)");
     expect(html).not.toContain(SITEVERIFY_SECRET);
     expect(html).not.toContain(CAP_SECRET);
@@ -164,9 +172,9 @@ describe("demo page", () => {
 
   it("versions every asset URL with the served content's hash", async () => {
     const html = await (await request("/")).text();
-    const urls = [
-      ...html.matchAll(/"(\/[\w./-]+)\?v=([0-9a-f]{12})"/g),
-    ].map(([, path, version]) => ({ path, version }));
+    const urls = [...html.matchAll(/"(\/[\w./-]+)\?v=([0-9a-f]{12})"/g)].map(
+      ([, path, version]) => ({ path, version }),
+    );
     expect(urls.map((u) => u.path).sort()).toEqual(
       [
         "/cap_wasm_bg.wasm",
@@ -759,7 +767,7 @@ describe("challenge formats", () => {
     expect(challenge.format).toBe(2);
     expect(challenge.challenges[0].protocol).toBe("hashwx");
     expect(challenge.challenges[0].payload).toMatchObject({
-      d: 1_000_000,
+      d: 150_000,
       n: 65_536,
     });
     expect(challenge.challenges[0].payload.c).toMatch(/^[0-9a-f]{64}$/);
